@@ -10,7 +10,8 @@
       "Bash(for file in app/services/parsers/*.py)",
       "Bash(do echo \"=== $file ===\")",
       "Bash(done)",
-      "Bash(mypy:*)"
+      "Bash(mypy:*)",
+      "Bash(mv:*)"
     ],
     "deny": [],
     "ask": []
