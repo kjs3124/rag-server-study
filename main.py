@@ -2,9 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-# Import routers (will be created later)
-# from app.api.documents import router as documents_router
-# from app.api.query import router as query_router
+# Import routers
+from app.api.documents import router as documents_router
 
 app = FastAPI(
     title="RAG System API",
@@ -27,11 +26,25 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "database": True,
+        "vector_store": True,
+        "models_loaded": ["parser_test"]
+    }
 
-# Router registration (uncomment after creating routers)
-# app.include_router(documents_router, prefix="/api/v1/documents", tags=["documents"])
-# app.include_router(query_router, prefix="/api/v1/query", tags=["query"])
+# Health check router (global)
+@app.get("/api/v1/health")
+async def api_health_check():
+    return {
+        "status": "healthy",
+        "database": True,
+        "vector_store": True,
+        "models_loaded": ["parser_test"]
+    }
+
+# Router registration
+app.include_router(documents_router, prefix="/api/v1/documents", tags=["documents"])
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8099)

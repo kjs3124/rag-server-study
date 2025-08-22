@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:chatgpt.com)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(claude mcp add codex:*)",
+      "Bash(claude mcp add:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(for file in app/services/parsers/*.py)",
+      "Bash(do echo \"=== $file ===\")",
+      "Bash(done)",
+      "Bash(mypy:*)"
     ],
     "deny": [],
     "ask": []
