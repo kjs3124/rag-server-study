@@ -4,12 +4,13 @@ try:
     PPTX_AVAILABLE = True
 except ImportError:
     PPTX_AVAILABLE = False
+    Presentation = None  # type: ignore
 
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 
 class PPTXParser(BaseDocumentParser):
     def parse(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
-        if not PPTX_AVAILABLE:
+        if not PPTX_AVAILABLE or Presentation is None:
             raise ImportError("PPTX 파싱을 위해 python-pptx가 필요합니다")
         
         prs = Presentation(file_path)
@@ -19,8 +20,21 @@ class PPTXParser(BaseDocumentParser):
             slide_text = []
             
             for shape in slide.shapes:
-                if hasattr(shape, "text") and shape.text.strip():
-                    slide_text.append(shape.text)
+                try:
+                    # 텍스트 프레임이 있는 경우 (TextBox, Rectangle 등)
+                    text_frame = getattr(shape, "text_frame", None)
+                    if text_frame and hasattr(text_frame, "text"):
+                        text = text_frame.text.strip()
+                        if text:
+                            slide_text.append(text)
+                    # 직접 텍스트 속성이 있는 경우 (legacy)
+                    elif hasattr(shape, "text"):
+                        text = getattr(shape, "text", "").strip()
+                        if text:
+                            slide_text.append(text)
+                except (AttributeError, Exception):
+                    # 텍스트가 없는 셰이프는 건너뜀
+                    continue
             
             if slide_text:
                 content = '\n'.join(slide_text)

@@ -9,7 +9,7 @@ from ..services.document_processor import DocumentProcessor
 from ..services.parsers.base import ParsedDocument
 from typing import cast
 
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, Field, validator
 from urllib.parse import urlparse
 import re
 
@@ -19,9 +19,23 @@ processor = DocumentProcessor()
 # 메모리에 문서 정보 저장 (테스트용)
 documents_db = {}
 
-@router.post("/upload")
-async def upload_document(file: UploadFile = File(...)):
+@router.post("/upload", 
+    summary="📄 문서 파일 업로드",
+    description="""
+    다양한 형식의 문서 파일을 업로드하고 파싱합니다.
+    
+    **지원 형식**: PDF, DOCX, XLSX, PPTX, HTML, MD, TXT, CSV
+    
+    **처리 과정**:
+    1. 파일 형식 검증
+    2. 서버에 파일 저장
+    3. 파서를 통한 내용 추출
+    4. 청크 단위로 분할
+    """,
+    response_description="업로드 성공 시 문서 ID와 처리 결과 반환")
+async def upload_document(file: UploadFile = File(..., description="업로드할 문서 파일")):
     """파일 업로드 및 파싱 테스트"""
+    
     
     # 파일 확장자 검증
     if file.filename is None:
@@ -78,9 +92,20 @@ async def upload_document(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"파일 처리 실패: {str(e)}")
 
 class UrlCrawlRequest(BaseModel):
-    url: str
-    max_depth: Optional[int] = 1
-    same_domain: Optional[bool] = True
+    """웹 크롤링 요청 모델"""
+    
+    url: str = Field(..., description="크롤링할 웹 페이지 URL", example="https://example.com")
+    max_depth: Optional[int] = Field(1, description="크롤링 깊이 (0: 현재 페이지만, 1: 링크 1단계)", ge=0, le=3)
+    same_domain: Optional[bool] = Field(True, description="동일 도메인만 크롤링 여부")
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "url": "https://example.com/article",
+                "max_depth": 1,
+                "same_domain": True
+            }
+        }
     
     @validator('url')
     def validate_url(cls, v):
@@ -103,7 +128,18 @@ class UrlCrawlRequest(BaseModel):
             
         return v
 
-@router.post("/url")
+@router.post("/url",
+    summary="🌐 웹 페이지 크롤링",
+    description="""
+    웹 페이지를 크롤링하여 콘텐츠를 추출합니다.
+    
+    **기능**:
+    - 단일/다중 페이지 크롤링
+    - HTML 콘텐츠 파싱
+    - 링크 따라가기 (depth 제어)
+    - 동일 도메인 제한 옵션
+    """,
+    response_description="크롤링 성공 시 문서 ID와 추출된 청크 수 반환")
 async def crawl_url(request: UrlCrawlRequest):
     """URL 크롤링 및 파싱 테스트"""
     
@@ -150,7 +186,10 @@ async def crawl_url(request: UrlCrawlRequest):
         "crawled_urls": parsed_doc.metadata.get("crawled_urls", 1)
     }
 
-@router.get("")
+@router.get("",
+    summary="📋 문서 목록 조회",
+    description="업로드된 모든 문서의 목록을 조회합니다.",
+    response_description="문서 목록과 각 문서의 기본 정보 반환")
 async def get_documents():
     """업로드된 문서 목록 조회"""
     
@@ -233,10 +272,32 @@ async def delete_document(document_id: str):
     return {"success": True, "message": "문서가 삭제되었습니다"}
 
 class QueryRequest(BaseModel):
-    query: str
-    top_k: Optional[int] = 5
+    """질의응답 요청 모델"""
+    
+    query: str = Field(..., description="질문 내용", example="이 문서의 주요 내용은 무엇인가요?", min_length=1)
+    top_k: Optional[int] = Field(5, description="반환할 최대 청크 수", ge=1, le=20)
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "query": "프로젝트의 주요 기능은 무엇인가요?",
+                "top_k": 5
+            }
+        }
 
-@router.post("/query")
+@router.post("/query",
+    summary="🔍 문서 질의응답",
+    description="""
+    업로드된 문서들을 대상으로 질의응답을 수행합니다.
+    
+    **기능**:
+    - 의미 기반 문서 검색
+    - 관련 청크 추출
+    - 질문에 대한 답변 생성
+    
+    *현재는 파서 테스트용 가짜 응답을 반환합니다.*
+    """,
+    response_description="질문에 대한 답변과 관련 문서 청크들 반환")
 async def test_query(request: QueryRequest):
     """파서 테스트용 가짜 질의응답 (실제 검색 없이 청크 반환)"""
     

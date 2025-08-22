@@ -9,7 +9,7 @@ import {
 } from '../types';
 
 class RAGApiService {
-  private baseURL = '/api/v1';
+  private baseURL = 'http://127.0.0.1:8099/api/v1';
   private api;
 
   constructor() {
@@ -68,6 +68,12 @@ class RAGApiService {
     return response.data.documents;
   }
 
+  // 문서 상세 조회
+  async getDocument(id: string): Promise<any> {
+    const response: AxiosResponse<any> = await this.api.get(`/documents/${id}`);
+    return response.data;
+  }
+
   // 문서 삭제
   async deleteDocument(id: string): Promise<void> {
     await this.api.delete(`/documents/${id}`);
@@ -75,7 +81,7 @@ class RAGApiService {
 
   // 질의응답
   async query(query: string, options: QueryOptions = { top_k: 5 }): Promise<QueryResults> {
-    const response: AxiosResponse<QueryResults> = await this.api.post('/query', {
+    const response: AxiosResponse<QueryResults> = await this.api.post('/documents/query', {
       query,
       ...options,
     });

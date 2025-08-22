@@ -1,23 +1,27 @@
 import requests
 from urllib.parse import urljoin, urlparse
-from typing import List, Dict, Any
+from typing import List
 import time
 import urllib3
+import asyncio
 
 # SSL 경고 무시
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 try:
-    from bs4 import BeautifulSoup
+    from bs4 import BeautifulSoup, Tag
     BS4_AVAILABLE = True
 except ImportError:
     BS4_AVAILABLE = False
+    BeautifulSoup = None  # type: ignore
+    Tag = None  # type: ignore
 
 try:
-    from playwright.sync_api import sync_playwright
+    from playwright.async_api import async_playwright
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
+    async_playwright = None  # type: ignore
 
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 
@@ -25,13 +29,27 @@ class WebCrawlerParser(BaseDocumentParser):
     """웹 크롤링 파서"""
     
     def __init__(self, use_playwright: bool = False, delay: float = 1.0):
-        self.use_playwright = use_playwright and PLAYWRIGHT_AVAILABLE
+        self.use_playwright = use_playwright and PLAYWRIGHT_AVAILABLE and async_playwright is not None
         self.delay = delay  # 요청 간 지연시간
         
     def parse(self, file_path: str, max_depth: int = 1, same_domain: bool = True, **kwargs) -> ParsedDocument:
         """웹페이지를 크롤링하여 청크로 분할"""
         
-        if not BS4_AVAILABLE:
+        # 이벤트 루프가 이미 실행 중인지 확인
+        try:
+            loop = asyncio.get_running_loop()
+            # 이미 실행 중인 루프에서는 새 태스크로 실행
+            import nest_asyncio
+            nest_asyncio.apply()
+            return asyncio.run(self._async_parse(file_path, max_depth, same_domain, **kwargs))
+        except RuntimeError:
+            # 루프가 없으면 새로 생성
+            return asyncio.run(self._async_parse(file_path, max_depth, same_domain, **kwargs))
+    
+    async def _async_parse(self, file_path: str, max_depth: int = 1, same_domain: bool = True, **kwargs) -> ParsedDocument:
+        """실제 비동기 파싱 로직"""
+        
+        if not BS4_AVAILABLE or BeautifulSoup is None:
             raise ImportError("웹 크롤링을 위해 beautifulsoup4가 필요합니다")
         
         visited_urls = set()
@@ -48,7 +66,7 @@ class WebCrawlerParser(BaseDocumentParser):
                 continue
                 
             try:
-                chunks, links = self._crawl_single_page(current_url)
+                chunks, links = await self._crawl_single_page(current_url)
                 all_chunks.extend(chunks)
                 visited_urls.add(current_url)
                 
@@ -64,7 +82,7 @@ class WebCrawlerParser(BaseDocumentParser):
                 
                 # 요청 간 지연
                 if self.delay > 0:
-                    time.sleep(self.delay)
+                    await asyncio.sleep(self.delay)
                     
             except Exception as e:
                 print(f"URL 크롤링 오류 {current_url}: {str(e)}")
@@ -82,11 +100,11 @@ class WebCrawlerParser(BaseDocumentParser):
             file_type="web"
         )
     
-    def _crawl_single_page(self, url: str) -> tuple[List[DocumentChunk], List[str]]:
+    async def _crawl_single_page(self, url: str) -> tuple[List[DocumentChunk], List[str]]:
         """단일 웹페이지 크롤링"""
         
         if self.use_playwright:
-            return self._crawl_with_playwright(url)
+            return await self._crawl_with_playwright(url)
         else:
             return self._crawl_with_requests(url)
     
@@ -99,6 +117,8 @@ class WebCrawlerParser(BaseDocumentParser):
         response = requests.get(url, headers=headers, timeout=10, verify=False)
         response.raise_for_status()
         
+        if BeautifulSoup is None:
+            raise ImportError("BeautifulSoup이 설치되지 않았습니다")
         soup = BeautifulSoup(response.content, 'html.parser')
         
         # 스크립트와 스타일 제거
@@ -112,9 +132,10 @@ class WebCrawlerParser(BaseDocumentParser):
         # 링크 추출  
         links = []
         for a in soup.find_all('a', href=True):
-            if hasattr(a, 'get'):
-                href = a.get('href')
-                if href and isinstance(href, str):
+            # Tag 객체만 처리, NavigableString 등은 건너뜀
+            if Tag is not None and isinstance(a, Tag) and a.has_attr('href'):
+                href = a['href']
+                if href and isinstance(href, str) and href.strip():
                     links.append(href)
         
         # 청크 생성
@@ -122,23 +143,29 @@ class WebCrawlerParser(BaseDocumentParser):
         
         return chunks, links
     
-    def _crawl_with_playwright(self, url: str) -> tuple[List[DocumentChunk], List[str]]:
+    async def _crawl_with_playwright(self, url: str) -> tuple[List[DocumentChunk], List[str]]:
         """Playwright를 사용한 동적 콘텐츠 크롤링"""
+        if not PLAYWRIGHT_AVAILABLE or async_playwright is None:
+            raise ImportError("Playwright를 위해 playwright가 필요합니다")
+            
         chunks: List[DocumentChunk] = []
         links = []
         
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
             
             try:
-                page.goto(url, wait_until='networkidle')
+                await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+                
+                # 동적 콘텐츠 로딩을 위한 대기
+                await page.wait_for_timeout(2000)
                 
                 # 텍스트 추출
-                text_content = page.evaluate('() => document.body.innerText')
+                text_content = await page.evaluate('() => document.body.innerText')
                 
                 # 링크 추출
-                links = page.evaluate('''
+                links = await page.evaluate('''
                     () => Array.from(document.querySelectorAll('a[href]'))
                            .map(a => a.href)
                            .filter(href => href.startsWith('http'))
@@ -148,7 +175,7 @@ class WebCrawlerParser(BaseDocumentParser):
                 chunks = self._create_chunks_from_text(text_content, url)
                 
             finally:
-                browser.close()
+                await browser.close()
         
         return chunks, links
     

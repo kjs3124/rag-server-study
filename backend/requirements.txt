@@ -21,11 +21,13 @@ unstructured==0.18.13
 python-pptx==1.0.2
 pandas==2.2.3
 openpyxl==3.1.5
+markdown==3.8.2
 
 # Web Scraping & Crawling
 beautifulsoup4==4.13.4
 requests==2.32.3
 playwright==1.50.0
+nest-asyncio==1.6.0
 
 # Database & Cache
 sqlalchemy==2.0.36

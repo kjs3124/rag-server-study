@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { DocumentIcon, CloudArrowUpIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { DocumentIcon, CloudArrowUpIcon, XMarkIcon, EyeIcon } from '@heroicons/react/24/outline';
 import { DocumentInfo, UploadResponse, CrawlOptions } from '../types';
 import apiService from '../services/api';
 
@@ -8,12 +8,14 @@ interface DocumentUploadProps {
   documents: DocumentInfo[];
   onUploadSuccess: (response: UploadResponse) => void;
   onDeleteDocument: (id: string) => void;
+  onViewDocument: (id: string) => void;
 }
 
 const DocumentUpload: React.FC<DocumentUploadProps> = ({
   documents,
   onUploadSuccess,
   onDeleteDocument,
+  onViewDocument,
 }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [urlInput, setUrlInput] = useState('');
@@ -168,19 +170,19 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
                 key={doc.id}
                 className="flex items-center justify-between p-3 bg-gray-50 rounded-md"
               >
-                <div className="flex items-center space-x-3">
-                  <DocumentIcon className="h-5 w-5 text-gray-400" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{doc.filename}</p>
+                <div className="flex items-center space-x-3 min-w-0 flex-1">
+                  <DocumentIcon className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900 truncate">{doc.filename}</p>
                     <p className="text-xs text-gray-500">
                       {formatFileSize(doc.file_size)} • {doc.chunks_count} chunks
                     </p>
                   </div>
                 </div>
                 
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2 flex-shrink-0">
                   <span className={`
-                    px-2 py-1 text-xs rounded-full
+                    px-2 py-1 text-xs rounded-full whitespace-nowrap
                     ${doc.status === 'completed' ? 'bg-green-100 text-green-800' : ''}
                     ${doc.status === 'processing' ? 'bg-yellow-100 text-yellow-800' : ''}
                     ${doc.status === 'error' ? 'bg-red-100 text-red-800' : ''}
@@ -189,10 +191,17 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
                   </span>
                   
                   <button
-                    onClick={() => onDeleteDocument(doc.id)}
-                    className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                    onClick={() => onViewDocument(doc.id)}
+                    className="px-2 py-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded whitespace-nowrap"
                   >
-                    <XMarkIcon className="h-4 w-4" />
+                    보기
+                  </button>
+                  
+                  <button
+                    onClick={() => onDeleteDocument(doc.id)}
+                    className="px-2 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded whitespace-nowrap"
+                  >
+                    삭제
                   </button>
                 </div>
               </div>

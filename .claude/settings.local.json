@@ -11,9 +11,14 @@
       "Bash(do echo \"=== $file ===\")",
       "Bash(done)",
       "Bash(mypy:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "C:\\Git\\StudyV2\\Create-RAG"
+    ]
   }
 }

@@ -5,12 +5,13 @@ try:
     BS4_AVAILABLE = True
 except ImportError:
     BS4_AVAILABLE = False
+    BeautifulSoup = None  # type: ignore
 
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 
 class HTMLParser(BaseDocumentParser):
     def parse(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
-        if not BS4_AVAILABLE:
+        if not BS4_AVAILABLE or BeautifulSoup is None:
             raise ImportError("HTML 파싱을 위해 beautifulsoup4가 필요합니다")
         
         with open(file_path, 'r', encoding='utf-8') as file:

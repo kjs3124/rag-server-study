@@ -3,6 +3,7 @@ import Header from './components/Header';
 import DocumentUpload from './components/DocumentUpload';
 import QuerySection from './components/QuerySection';
 import ResultsDisplay from './components/ResultsDisplay';
+import DocumentViewer from './components/DocumentViewer';
 import { 
   HealthStatus, 
   DocumentInfo, 
@@ -19,6 +20,7 @@ const App: React.FC = () => {
   const [queryResults, setQueryResults] = useState<QueryResults | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewingDocumentId, setViewingDocumentId] = useState<string | null>(null);
 
   // 헬스체크 및 초기 데이터 로드
   useEffect(() => {
@@ -64,33 +66,39 @@ const App: React.FC = () => {
     return () => clearInterval(healthCheckInterval);
   }, []);
 
-  const handleUploadSuccess = (response: UploadResponse) => {
-    // 새 문서를 문서 목록에 추가
-    const newDocument: DocumentInfo = {
-      id: response.document_id,
-      filename: response.document_id, // API에서 filename을 받지 못하는 경우
-      file_size: 0, // API에서 제공되지 않는 경우
-      chunks_count: response.chunks_created,
-      upload_time: new Date().toISOString(),
-      status: 'completed'
-    };
-    
-    setDocuments(prev => [newDocument, ...prev]);
-    
+  const handleUploadSuccess = async (response: UploadResponse) => {
     // 성공 메시지
     alert(`문서가 성공적으로 업로드되었습니다. (${response.chunks_created}개 청크 생성)`);
+    
+    // 문서 목록 새로고침
+    try {
+      const updatedDocs = await apiService.getDocuments();
+      setDocuments(updatedDocs);
+    } catch (error) {
+      console.error('Failed to refresh documents:', error);
+    }
   };
 
   const handleDeleteDocument = async (id: string) => {
     if (confirm('이 문서를 삭제하시겠습니까?')) {
       try {
         await apiService.deleteDocument(id);
-        setDocuments(prev => prev.filter(doc => doc.id !== id));
+        // 문서 목록 새로고침
+        const updatedDocs = await apiService.getDocuments();
+        setDocuments(updatedDocs);
       } catch (error) {
         console.error('Failed to delete document:', error);
         alert('문서 삭제에 실패했습니다.');
       }
     }
+  };
+
+  const handleViewDocument = (id: string) => {
+    setViewingDocumentId(id);
+  };
+
+  const handleCloseViewer = () => {
+    setViewingDocumentId(null);
   };
 
   const handleQuery = async (query: string, options: QueryOptions) => {
@@ -142,6 +150,7 @@ const App: React.FC = () => {
               documents={documents}
               onUploadSuccess={handleUploadSuccess}
               onDeleteDocument={handleDeleteDocument}
+              onViewDocument={handleViewDocument}
             />
           </div>
           
@@ -161,6 +170,14 @@ const App: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* 문서 뷰어 모달 */}
+      {viewingDocumentId && (
+        <DocumentViewer 
+          documentId={viewingDocumentId}
+          onClose={handleCloseViewer}
+        />
+      )}
       
       {/* 푸터 */}
       <footer className="border-t border-gray-200 bg-white mt-12">

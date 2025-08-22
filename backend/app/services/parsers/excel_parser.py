@@ -4,12 +4,13 @@ try:
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
+    pd = None  # type: ignore
 
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 
 class ExcelParser(BaseDocumentParser):
     def parse(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
-        if not PANDAS_AVAILABLE:
+        if not PANDAS_AVAILABLE or pd is None:
             raise ImportError("Excel 파싱을 위해 pandas가 필요합니다")
         
         chunks: List[DocumentChunk] = []
