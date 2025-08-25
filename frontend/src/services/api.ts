@@ -95,11 +95,6 @@ class RAGApiService {
     return response.data;
   }
 
-  // 시스템 통계
-  async getStats(): Promise<any> {
-    const response = await this.api.get('/stats');
-    return response.data;
-  }
 }
 
 export const apiService = new RAGApiService();

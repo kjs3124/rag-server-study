@@ -1,147 +1,67 @@
-from typing import List
+from typing import List, Optional
 from pathlib import Path
+import chardet
 
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 
 class TXTParser(BaseDocumentParser):
-    """텍스트 파일 파서"""
+    """텍스트 파일 파서 - chardet + LangChain 청킹"""
     
-    def parse(self, file_path: str, chunk_size: int = 1000, encoding: str = 'utf-8', **kwargs) -> ParsedDocument:
+    def parse(self, file_path: str, chunk_size: int = 1000, encoding: Optional[str] = None, **kwargs) -> ParsedDocument:
         """텍스트 파일을 파싱하여 청크로 분할"""
         
-        try:
-            with open(file_path, 'r', encoding=encoding) as file:
-                content = file.read()
-        except UnicodeDecodeError:
-            # UTF-8 실패시 다른 인코딩 시도
-            encodings = ['cp949', 'euc-kr', 'latin-1']
-            content = None
-            
-            for enc in encodings:
-                try:
-                    with open(file_path, 'r', encoding=enc) as file:
-                        content = file.read()
-                    break
-                except UnicodeDecodeError:
-                    continue
-            
-            if content is None:
-                raise Exception("파일 인코딩을 감지할 수 없습니다")
+        # 인코딩 감지
+        detected_encoding = encoding or self._detect_encoding(file_path)
         
-        # 청크로 분할
-        if content is None:
-            raise Exception("파일 내용을 읽을 수 없습니다")
-        chunks = self._split_text_into_chunks(content, file_path, chunk_size)
+        with open(file_path, 'r', encoding=detected_encoding) as file:
+            content = file.read()
+        
+        # LangChain 청킹 (base 클래스 메서드 사용)
+        chunks = self._create_langchain_chunks(
+            content,
+            chunk_size,
+            file_path,
+            separators=[
+                "\n\n\n",  # 섹션 구분
+                "\n\n",    # 문단 구분
+                "\n",      # 줄 구분
+                ". ",      # 문장 구분
+                " ",       # 공백 구분
+                ""         # 문자 구분
+            ],
+            parser="txt_chardet_langchain",
+            encoding=detected_encoding,
+            word_count=len(content.split())
+        )
         
         return ParsedDocument(
             chunks=chunks,
             metadata={
                 **self._extract_metadata(file_path),
-                "parser": "txt_parser",
-                "encoding": encoding,
+                "parser": "txt_chardet_langchain",
+                "encoding": detected_encoding,
                 "total_chunks": len(chunks),
                 "total_characters": len(content)
             },
             file_type="text"
         )
     
-    def _split_text_into_chunks(self, text: str, file_path: str, chunk_size: int) -> List[DocumentChunk]:
-        """텍스트를 청크로 분할"""
-        chunks: List[DocumentChunk] = []
-        
-        # 먼저 문단으로 분할 시도
-        paragraphs = text.split('\n\n')
-        
-        current_chunk: List[str] = []
-        current_size = 0
-        
-        for para in paragraphs:
-            para = para.strip()
-            if not para:
-                continue
-                
-            para_size = len(para)
+    def _detect_encoding(self, file_path: str) -> str:
+        """chardet으로 파일 인코딩 감지 (한국어 지원)"""
+        with open(file_path, 'rb') as file:
+            raw_data = file.read(10000)  # 10KB 샘플링
+            result = chardet.detect(raw_data)
+            detected_encoding = result['encoding']
             
-            # 문단이 청크 크기보다 크면 별도 처리
-            if para_size > chunk_size:
-                # 현재 청크가 있으면 먼저 저장
-                if current_chunk:
-                    chunks.append(self._create_chunk(
-                        '\n\n'.join(current_chunk),
-                        file_path,
-                        len(chunks)
-                    ))
-                    current_chunk = []
-                    current_size = 0
-                
-                # 큰 문단을 문장 단위로 분할
-                sentences = self._split_by_sentences(para)
-                temp_chunk: List[str] = []
-                temp_size = 0
-                
-                for sentence in sentences:
-                    sentence_size = len(sentence)
-                    if temp_size + sentence_size > chunk_size and temp_chunk:
-                        chunks.append(self._create_chunk(
-                            ' '.join(temp_chunk),
-                            file_path,
-                            len(chunks)
-                        ))
-                        temp_chunk = [sentence]
-                        temp_size = sentence_size
-                    else:
-                        temp_chunk.append(sentence)
-                        temp_size += sentence_size
-                
-                if temp_chunk:
-                    chunks.append(self._create_chunk(
-                        ' '.join(temp_chunk),
-                        file_path,
-                        len(chunks)
-                    ))
-            
-            # 일반적인 문단 처리
-            elif current_size + para_size > chunk_size and current_chunk:
-                chunks.append(self._create_chunk(
-                    '\n\n'.join(current_chunk),
-                    file_path,
-                    len(chunks)
-                ))
-                current_chunk = [para]
-                current_size = para_size
+            # 한국어 인코딩 우선순위
+            if detected_encoding in ['cp949', 'euc-kr']:
+                return detected_encoding
+            elif detected_encoding and result['confidence'] > 0.8:
+                return detected_encoding
             else:
-                current_chunk.append(para)
-                current_size += para_size
-        
-        # 남은 청크 처리
-        if current_chunk:
-            chunks.append(self._create_chunk(
-                '\n\n'.join(current_chunk),
-                file_path,
-                len(chunks)
-            ))
-        
-        return chunks
+                return 'utf-8'  # 기본값
     
-    def _split_by_sentences(self, text: str) -> List[str]:
-        """텍스트를 문장 단위로 분할"""
-        import re
-        # 한국어와 영어 문장 구분점 고려
-        sentences = re.split(r'[.!?]+\s+', text)
-        return [s.strip() for s in sentences if s.strip()]
-    
-    def _create_chunk(self, content: str, file_path: str, chunk_index: int) -> DocumentChunk:
-        """DocumentChunk 객체 생성"""
-        return DocumentChunk(
-            content=content,
-            metadata={
-                **self._extract_metadata(file_path),
-                "chunk_index": chunk_index,
-                "character_count": len(content),
-                "word_count": len(content.split())
-            },
-            chunk_id=self._create_chunk_id(file_path, chunk_index)
-        )
     
     def get_supported_extensions(self) -> List[str]:
         return ['.txt', '.text', '.log', '.rtf']
+    

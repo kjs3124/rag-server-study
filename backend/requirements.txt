@@ -15,19 +15,24 @@ langchain-openai==0.2.14
 sentence-transformers==5.1.0
 
 # Document Processing
-PyPDF2==3.0.1
+PyMuPDF==1.26.3
+pdfplumber==0.12.1
+langchain-text-splitters==0.3.8
 python-docx==1.2.0
-unstructured==0.18.13
 python-pptx==1.0.2
-pandas==2.2.3
 openpyxl==3.1.5
 markdown==3.8.2
+chardet==5.2.0
+polars==1.32.3
+types-openpyxl==3.1.5.20250822
 
 # Web Scraping & Crawling
 beautifulsoup4==4.13.4
 requests==2.32.3
 playwright==1.50.0
 nest-asyncio==1.6.0
+trafilatura==2.0.0
+markdownify==1.2.0
 
 # Database & Cache
 sqlalchemy==2.0.36

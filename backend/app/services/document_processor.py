@@ -73,32 +73,6 @@ class DocumentProcessor:
         logger.info(f"URL 크롤링 완료: {url} ({len(crawled_content.chunks)}개 청크)")
         return crawled_content
     
-    def process_batch(self, file_paths: List[str], **kwargs) -> List[ParsedDocument]:
-        """
-        배치 파일 처리
-        
-        Args:
-            file_paths: 처리할 파일 경로 목록
-            **kwargs: 파서별 추가 옵션
-            
-        Returns:
-            List[ParsedDocument]: 파싱된 문서 목록
-        """
-        results = []
-        errors = []
-        
-        for file_path in file_paths:
-            try:
-                parsed_doc = self.process_file(file_path, **kwargs)
-                results.append(parsed_doc)
-            except Exception as e:
-                errors.append({"file": file_path, "error": str(e)})
-                logger.error(f"배치 처리 중 오류: {file_path} - {str(e)}")
-        
-        if errors:
-            logger.warning(f"배치 처리 중 {len(errors)}개 파일에서 오류 발생")
-        
-        return results
     
     def get_file_info(self, file_path: str) -> Dict[str, Any]:
         """
@@ -129,52 +103,4 @@ class DocumentProcessor:
             "exists": path.exists()
         }
     
-    def validate_file(self, file_path: str) -> Dict[str, Any]:
-        """
-        파일 처리 전 검증
-        
-        Args:
-            file_path: 검증할 파일 경로
-            
-        Returns:
-            Dict: 검증 결과
-        """
-        file_info = self.get_file_info(file_path)
-        
-        validation_result: Dict[str, Any] = {
-            "is_valid": True,
-            "errors": [],
-            "warnings": [],
-            "file_info": file_info
-        }
-        
-        # 파일 존재 확인
-        if not file_info["exists"]:
-            validation_result["is_valid"] = False
-            validation_result["errors"].append("파일이 존재하지 않습니다")
-        
-        # 지원 여부 확인
-        if not file_info["is_supported"]:
-            validation_result["is_valid"] = False
-            validation_result["errors"].append(f"지원되지 않는 파일 형식: {file_info['extension']}")
-        
-        # 파일 크기 확인 (100MB 제한)
-        max_size = 100 * 1024 * 1024  # 100MB
-        if file_info["file_size"] > max_size:
-            validation_result["warnings"].append("파일 크기가 100MB를 초과합니다")
-        
-        return validation_result
     
-    def get_supported_formats(self) -> Dict[str, List[str]]:
-        """
-        지원되는 파일 형식 반환
-        
-        Returns:
-            Dict: 카테고리별 지원 형식
-        """
-        return {
-            "documents": [".pdf", ".docx", ".doc", ".txt", ".md", ".html"],
-            "spreadsheets": [".xlsx", ".xls", ".csv"],
-            "presentations": [".pptx", ".ppt"],
-            "web": ["URL 크롤링 지원"]
-        }

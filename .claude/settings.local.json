@@ -13,7 +13,10 @@
       "Bash(mypy:*)",
       "Bash(mv:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(git push:*)",
+      "mcp__wonderwhy-er-desktop-commander__read_file",
+      "Read(/C:\\mnt\\c\\Git\\StudyV2\\Create-RAG/**)"
     ],
     "deny": [],
     "ask": [],

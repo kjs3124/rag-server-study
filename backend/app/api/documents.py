@@ -1,6 +1,5 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
-from fastapi.responses import JSONResponse
-from typing import List, Optional
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from typing import Optional
 import os
 import uuid
 from datetime import datetime
@@ -9,7 +8,7 @@ from ..services.document_processor import DocumentProcessor
 from ..services.parsers.base import ParsedDocument
 from typing import cast
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from urllib.parse import urlparse
 import re
 
@@ -85,16 +84,20 @@ async def upload_document(file: UploadFile = File(..., description="업로드할
         }
         
     except Exception as e:
-        # 실패시 파일 삭제
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        original_error = str(e)
         
-        raise HTTPException(status_code=500, detail=f"파일 처리 실패: {str(e)}")
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except PermissionError:
+                pass
+        
+        raise HTTPException(status_code=500, detail=f"파일 처리 실패: {original_error}")
 
 class UrlCrawlRequest(BaseModel):
     """웹 크롤링 요청 모델"""
     
-    url: str = Field(..., description="크롤링할 웹 페이지 URL", example="https://example.com")
+    url: str = Field(description="크롤링할 웹 페이지 URL", examples=["https://example.com"])
     max_depth: Optional[int] = Field(1, description="크롤링 깊이 (0: 현재 페이지만, 1: 링크 1단계)", ge=0, le=3)
     same_domain: Optional[bool] = Field(True, description="동일 도메인만 크롤링 여부")
     
@@ -107,7 +110,7 @@ class UrlCrawlRequest(BaseModel):
             }
         }
     
-    @validator('url')
+    @field_validator('url')
     def validate_url(cls, v):
         if not v or not v.strip():
             raise ValueError("URL을 입력해주세요")
@@ -274,7 +277,7 @@ async def delete_document(document_id: str):
 class QueryRequest(BaseModel):
     """질의응답 요청 모델"""
     
-    query: str = Field(..., description="질문 내용", example="이 문서의 주요 내용은 무엇인가요?", min_length=1)
+    query: str = Field(description="질문 내용", examples=["이 문서의 주요 내용은 무엇인가요?"], min_length=1)
     top_k: Optional[int] = Field(5, description="반환할 최대 청크 수", ge=1, le=20)
     
     class Config:
@@ -297,7 +300,8 @@ class QueryRequest(BaseModel):
     
     *현재는 파서 테스트용 가짜 응답을 반환합니다.*
     """,
-    response_description="질문에 대한 답변과 관련 문서 청크들 반환")
+    response_description="질문에 대한 답변과 관련 문서 청크들 반환",
+    deprecated=True)
 async def test_query(request: QueryRequest):
     """파서 테스트용 가짜 질의응답 (실제 검색 없이 청크 반환)"""
     

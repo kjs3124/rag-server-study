@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 @dataclass
 class DocumentChunk:
@@ -41,9 +42,57 @@ class BaseDocumentParser(ABC):
     def _extract_metadata(self, file_path: str) -> Dict[str, Any]:
         """기본 메타데이터 추출"""
         file_path_obj = Path(file_path)
-        return {
-            "filename": file_path_obj.name,
-            "file_size": file_path_obj.stat().st_size if file_path_obj.exists() else 0,
-            "file_extension": file_path_obj.suffix.lower(),
-            "created_at": file_path_obj.stat().st_ctime if file_path_obj.exists() else None,
-        }
+        if file_path_obj.exists():
+            stat_info = file_path_obj.stat()
+            return {
+                "filename": file_path_obj.name,
+                "file_size": stat_info.st_size,
+                "file_extension": file_path_obj.suffix.lower(),
+            }
+        else:
+            return {
+                "filename": file_path_obj.name,
+                "file_size": 0,
+                "file_extension": file_path_obj.suffix.lower(),
+            }
+    
+    def _create_langchain_chunks(self, text: str, chunk_size: int, file_path: str, 
+                                separators: Optional[List[str]] = None, **metadata) -> List[DocumentChunk]:
+        """LangChain RecursiveCharacterTextSplitter를 사용한 공통 청킹 메서드"""
+        
+        # 기본 separator (모든 파일 타입에 적용 가능한 범용 설정)
+        default_separators = [
+            "\n\n",  # 문단 구분
+            "\n",    # 줄 구분
+            ". ",    # 문장 구분
+            " ",     # 공백 구분
+            ""       # 문자 구분
+        ]
+        
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=int(chunk_size * 0.1),  # 10% 오버랩
+            length_function=len,
+            separators=separators or default_separators
+        )
+        
+        text_chunks = text_splitter.split_text(text)
+        chunks: List[DocumentChunk] = []
+        
+        for i, chunk_text in enumerate(text_chunks):
+            if chunk_text.strip():
+                chunk_metadata = {
+                    **self._extract_metadata(file_path),
+                    "chunk_index": i,
+                    "chunk_size": len(chunk_text),
+                    **metadata  # 파서별 추가 메타데이터
+                }
+                
+                chunk = DocumentChunk(
+                    content=chunk_text,
+                    metadata=chunk_metadata,
+                    chunk_id=self._create_chunk_id(file_path, i)
+                )
+                chunks.append(chunk)
+        
+        return chunks

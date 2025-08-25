@@ -71,10 +71,3 @@ class DocumentParserFactory:
     def get_supported_extensions(cls) -> list[str]:
         """지원하는 모든 파일 확장자 반환"""
         return list(cls._parsers.keys())
-    
-    @classmethod
-    def register_parser(cls, extension: str, parser_class: Type[BaseDocumentParser]):
-        """새로운 파서 등록"""
-        if not extension.startswith('.'):
-            extension = f'.{extension}'
-        cls._parsers[extension] = parser_class
