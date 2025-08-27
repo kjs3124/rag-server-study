@@ -12,24 +12,23 @@ pgvector==0.4.1
 openai==1.63.0
 langchain==0.3.13
 langchain-openai==0.2.14
+langchain-text-splitters==0.3.8
+langchain-community==0.3.22
 sentence-transformers==5.1.0
 
 # Document Processing
 PyMuPDF==1.26.3
-pdfplumber==0.12.1
-langchain-text-splitters==0.3.8
+pdfplumber==0.11.6
 python-docx==1.2.0
 python-pptx==1.0.2
 openpyxl==3.1.5
 markdown==3.8.2
 chardet==5.2.0
 polars==1.32.3
-types-openpyxl==3.1.5.20250822
 
 # Web Scraping & Crawling
 beautifulsoup4==4.13.4
 requests==2.32.3
-playwright==1.50.0
 nest-asyncio==1.6.0
 trafilatura==2.0.0
 markdownify==1.2.0

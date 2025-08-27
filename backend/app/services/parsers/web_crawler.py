@@ -1,47 +1,79 @@
 import requests
 from urllib.parse import urljoin, urlparse
-from typing import List
-import time
-import urllib3
+from typing import List, Optional, Any
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except ImportError:
+    urllib3 = None
 import asyncio
-
-# SSL 경고 무시
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 try:
     from bs4 import BeautifulSoup, Tag
     BS4_AVAILABLE = True
+    BeautifulSoup_TYPE: Optional[Any] = BeautifulSoup
 except ImportError:
     BS4_AVAILABLE = False
-    BeautifulSoup = None  # type: ignore
-    Tag = None  # type: ignore
+    BeautifulSoup_TYPE = None
 
+# LangChain HTML splitter
+HTMLHeaderTextSplitter: Any = None
+HTML_SPLITTER_AVAILABLE = False
 try:
-    from playwright.async_api import async_playwright
-    PLAYWRIGHT_AVAILABLE = True
+    from langchain_text_splitters import HTMLHeaderTextSplitter as _HTMLHeaderTextSplitter
+    HTMLHeaderTextSplitter = _HTMLHeaderTextSplitter
+    HTML_SPLITTER_AVAILABLE = True
 except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-    async_playwright = None  # type: ignore
+    HTML_SPLITTER_AVAILABLE = False
+
+trafilatura: Any = None
+TRAFILATURA_AVAILABLE = False
+try:
+    import trafilatura as _trafilatura
+    trafilatura = _trafilatura
+    TRAFILATURA_AVAILABLE = True
+except ImportError:
+    TRAFILATURA_AVAILABLE = False
 
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 
 class WebCrawlerParser(BaseDocumentParser):
     """웹 크롤링 파서"""
     
-    def __init__(self, use_playwright: bool = False, delay: float = 1.0):
-        self.use_playwright = use_playwright and PLAYWRIGHT_AVAILABLE and async_playwright is not None
+    def __init__(self, delay: float = 1.0):
         self.delay = delay  # 요청 간 지연시간
         
     def parse(self, file_path: str, max_depth: int = 1, same_domain: bool = True, **kwargs) -> ParsedDocument:
         """웹페이지를 크롤링하여 청크로 분할"""
         
-        # 이벤트 루프가 이미 실행 중인지 확인
+        # nest-asyncio로 이벤트 루프 중첩 허용
         try:
-            loop = asyncio.get_running_loop()
-            # 이미 실행 중인 루프에서는 새 태스크로 실행
             import nest_asyncio
             nest_asyncio.apply()
-            return asyncio.run(self._async_parse(file_path, max_depth, same_domain, **kwargs))
+        except ImportError:
+            pass  # nest_asyncio가 없으면 무시
+        
+        # 이벤트 루프 처리
+        try:
+            loop = asyncio.get_running_loop()
+            # 이미 실행 중인 루프가 있으면 새 루프 생성
+            import threading
+            import concurrent.futures
+            
+            def run_in_thread():
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    return new_loop.run_until_complete(
+                        self._async_parse(file_path, max_depth, same_domain, **kwargs)
+                    )
+                finally:
+                    new_loop.close()
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_in_thread)
+                return future.result()
+                
         except RuntimeError:
             # 루프가 없으면 새로 생성
             return asyncio.run(self._async_parse(file_path, max_depth, same_domain, **kwargs))
@@ -49,7 +81,7 @@ class WebCrawlerParser(BaseDocumentParser):
     async def _async_parse(self, file_path: str, max_depth: int = 1, same_domain: bool = True, **kwargs) -> ParsedDocument:
         """실제 비동기 파싱 로직"""
         
-        if not BS4_AVAILABLE or BeautifulSoup is None:
+        if not BS4_AVAILABLE:
             raise ImportError("웹 크롤링을 위해 beautifulsoup4가 필요합니다")
         
         visited_urls = set()
@@ -102,24 +134,62 @@ class WebCrawlerParser(BaseDocumentParser):
     
     async def _crawl_single_page(self, url: str) -> tuple[List[DocumentChunk], List[str]]:
         """단일 웹페이지 크롤링"""
-        
-        if self.use_playwright:
-            return await self._crawl_with_playwright(url)
-        else:
-            return self._crawl_with_requests(url)
+        return await self._crawl_with_trafilatura(url)
     
-    def _crawl_with_requests(self, url: str) -> tuple[List[DocumentChunk], List[str]]:
-        """requests + BeautifulSoup을 사용한 크롤링"""
+    async def _crawl_with_trafilatura(self, url: str) -> tuple[List[DocumentChunk], List[str]]:
+        """trafilatura를 사용한 고품질 텍스트 추출"""
+        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
+        # trafilatura로 텍스트 추출
+        if TRAFILATURA_AVAILABLE and trafilatura is not None:
+            try:
+                downloaded = trafilatura.fetch_url(url)
+                if downloaded:
+                    # 1차: HTML 헤더 기반 구조적 청킹 시도
+                    if HTML_SPLITTER_AVAILABLE and HTMLHeaderTextSplitter is not None:
+                        try:
+                            chunks, links = self._create_html_header_chunks(downloaded, url)
+                            if chunks:
+                                print(f"✅ HTML 헤더 청킹 성공: {len(chunks)}개 청크 생성")
+                                return chunks, links
+                        except Exception as e:
+                            print(f"HTML 헤더 청킹 실패: {e}, 일반 텍스트 청킹으로 폴백")
+                    
+                    # 2차: trafilatura 텍스트 추출 + 커스텀 청킹
+                    clean_text = trafilatura.extract(downloaded, include_comments=False, include_tables=True)
+                    if clean_text and len(clean_text) > 50:
+                        print(f"✅ trafilatura 텍스트 청킹 성공: {len(clean_text)}자 추출")
+                        
+                        # BeautifulSoup으로 링크 추출
+                        links = []
+                        if BeautifulSoup_TYPE is not None:
+                            soup = BeautifulSoup_TYPE(downloaded, 'html.parser')
+                            for a in soup.find_all('a', href=True):
+                                href = a.get('href')
+                                if href and isinstance(href, str) and href.strip():
+                                    links.append(href)
+                        
+                        chunks = self._create_chunks_from_text(clean_text, url)
+                        return chunks, links
+            except Exception as e:
+                print(f"trafilatura 실패: {e}, requests 폴백 시도")
+        
+        # 폴백: requests + BeautifulSoup
+        return self._crawl_with_requests_fallback(url, headers)
+    
+    def _crawl_with_requests_fallback(self, url: str, headers: dict) -> tuple[List[DocumentChunk], List[str]]:
+        """requests + BeautifulSoup 폴백 방식"""
+        
         response = requests.get(url, headers=headers, timeout=10, verify=False)
         response.raise_for_status()
         
-        if BeautifulSoup is None:
+        if BeautifulSoup_TYPE is None:
             raise ImportError("BeautifulSoup이 설치되지 않았습니다")
-        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        soup = BeautifulSoup_TYPE(response.content, 'html.parser')
         
         # 스크립트와 스타일 제거
         for script in soup(["script", "style"]):
@@ -132,52 +202,14 @@ class WebCrawlerParser(BaseDocumentParser):
         # 링크 추출  
         links = []
         for a in soup.find_all('a', href=True):
-            # Tag 객체만 처리, NavigableString 등은 건너뜀
-            if Tag is not None and isinstance(a, Tag) and a.has_attr('href'):
-                href = a['href']
-                if href and isinstance(href, str) and href.strip():
-                    links.append(href)
+            href = a.get('href')
+            if href and isinstance(href, str) and href.strip():
+                links.append(href)
         
-        # 청크 생성
         chunks = self._create_chunks_from_text(clean_text, url)
-        
         return chunks, links
     
-    async def _crawl_with_playwright(self, url: str) -> tuple[List[DocumentChunk], List[str]]:
-        """Playwright를 사용한 동적 콘텐츠 크롤링"""
-        if not PLAYWRIGHT_AVAILABLE or async_playwright is None:
-            raise ImportError("Playwright를 위해 playwright가 필요합니다")
-            
-        chunks: List[DocumentChunk] = []
-        links = []
-        
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            
-            try:
-                await page.goto(url, wait_until='domcontentloaded', timeout=30000)
-                
-                # 동적 콘텐츠 로딩을 위한 대기
-                await page.wait_for_timeout(2000)
-                
-                # 텍스트 추출
-                text_content = await page.evaluate('() => document.body.innerText')
-                
-                # 링크 추출
-                links = await page.evaluate('''
-                    () => Array.from(document.querySelectorAll('a[href]'))
-                           .map(a => a.href)
-                           .filter(href => href.startsWith('http'))
-                ''')
-                
-                # 청크 생성
-                chunks = self._create_chunks_from_text(text_content, url)
-                
-            finally:
-                await browser.close()
-        
-        return chunks, links
+    # Playwright 메소드 제거됨
     
     def _create_chunks_from_text(self, text: str, source_url: str, chunk_size: int = 1000) -> List[DocumentChunk]:
         """텍스트에서 청크 생성"""
@@ -222,5 +254,52 @@ class WebCrawlerParser(BaseDocumentParser):
         
         return chunks
     
+    def _create_html_header_chunks(self, html_content: str, source_url: str) -> tuple[List[DocumentChunk], List[str]]:
+        """HTML 헤더를 이용한 구조적 청킹"""
+        
+        if not HTML_SPLITTER_AVAILABLE or HTMLHeaderTextSplitter is None:
+            raise ImportError("HTMLHeaderTextSplitter를 사용할 수 없습니다")
+        
+        # HTML 헤더 기반 분할 설정
+        headers_to_split_on = [
+            ("h1", "Header 1"),
+            ("h2", "Header 2"), 
+            ("h3", "Header 3"),
+        ]
+        
+        html_splitter = HTMLHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+        html_header_splits = html_splitter.split_text(html_content)
+        
+        chunks: List[DocumentChunk] = []
+        
+        # 각 분할된 텍스트를 DocumentChunk로 변환
+        for i, split in enumerate(html_header_splits):
+            if split.page_content.strip():
+                # 헤더 메타데이터 추출
+                header_info = split.metadata if hasattr(split, 'metadata') else {}
+                
+                chunk = DocumentChunk(
+                    content=split.page_content,
+                    metadata={
+                        "source_url": source_url,
+                        "source_type": "web_header",
+                        "chunk_size": len(split.page_content),
+                        "header_structure": header_info
+                    },
+                    chunk_id=f"web_header_{i:04d}_{urlparse(source_url).netloc}",
+                )
+                chunks.append(chunk)
+        
+        # BeautifulSoup으로 링크 추출
+        links = []
+        if BeautifulSoup_TYPE is not None:
+            soup = BeautifulSoup_TYPE(html_content, 'html.parser')
+            for a in soup.find_all('a', href=True):
+                href = a.get('href')
+                if href and isinstance(href, str) and href.strip():
+                    links.append(href)
+        
+        return chunks, links
+    
     def get_supported_extensions(self) -> List[str]:
-        return ['url', 'http', 'https']
+        return ['url']

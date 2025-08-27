@@ -1,11 +1,89 @@
-from typing import List
+from typing import List, Optional, Any
 import chardet
 import polars as pl
+
+# LangChain CSVLoader
+CSVLoader: Any = None
+CSVLOADER_AVAILABLE = False
+try:
+    from langchain_community.document_loaders import CSVLoader as _CSVLoader
+    CSVLoader = _CSVLoader
+    CSVLOADER_AVAILABLE = True
+except ImportError:
+    CSVLOADER_AVAILABLE = False
 
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 
 class CSVParser(BaseDocumentParser):
     def parse(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
+        """CSV 파일을 파싱하여 청크로 분할"""
+        
+        # 1차: LangChain CSVLoader 사용 시도
+        if CSVLOADER_AVAILABLE and CSVLoader is not None:
+            try:
+                encoding = self._detect_encoding(file_path)
+                parsed_doc = self._parse_with_csvloader(file_path, encoding, chunk_size, **kwargs)
+                if parsed_doc is not None and parsed_doc.chunks:
+                    print(f"✅ CSVLoader 청킹 성공: {len(parsed_doc.chunks)}개 청크 생성")
+                    return parsed_doc
+            except Exception as e:
+                print(f"CSVLoader 실패: {e}, polars 폴백 시도")
+        
+        # 2차: 기존 polars 기반 폴백
+        return self._parse_with_polars_fallback(file_path, chunk_size, **kwargs)
+    
+    def _parse_with_csvloader(self, file_path: str, encoding: str, chunk_size: int = 1000, **kwargs) -> Optional[ParsedDocument]:
+        """CSVLoader를 사용한 전용 CSV 청킹"""
+        
+        if not CSVLOADER_AVAILABLE or CSVLoader is None:
+            raise ImportError("CSVLoader를 사용할 수 없습니다")
+        
+        # CSVLoader로 직접 로드
+        loader = CSVLoader(
+            file_path=file_path,
+            encoding=encoding,
+            csv_args={"delimiter": ","}  # 기본 CSV 구분자
+        )
+        
+        docs = loader.load()
+        
+        if not docs:
+            return None
+        
+        chunks: List[DocumentChunk] = []
+        
+        # CSVLoader의 각 문서를 DocumentChunk로 변환
+        for i, doc in enumerate(docs):
+            if doc.page_content.strip():
+                chunk = DocumentChunk(
+                    content=doc.page_content,
+                    metadata={
+                        **self._extract_metadata(file_path),
+                        **doc.metadata,  # CSVLoader 메타데이터 포함
+                        "chunk_index": i,
+                        "chunk_size": len(doc.page_content),
+                        "parser": "csvloader_csv_parser",
+                        "encoding": encoding
+                    },
+                    chunk_id=self._create_chunk_id(file_path, i)
+                )
+                chunks.append(chunk)
+        
+        return ParsedDocument(
+            chunks=chunks,
+            metadata={
+                **self._extract_metadata(file_path), 
+                "parser": "csvloader_csv_parser",
+                "encoding": encoding,
+                "total_chunks": len(chunks),
+                "source": "csvloader"
+            },
+            file_type="csv"
+        )
+    
+    def _parse_with_polars_fallback(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
+        """기존 polars 기반 폴백 처리"""
+        
         # 1. 인코딩 감지 (한국어 지원)
         encoding = self._detect_encoding(file_path)
         

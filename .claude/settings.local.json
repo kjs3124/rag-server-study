@@ -16,7 +16,10 @@
       "Bash(taskkill:*)",
       "Bash(git push:*)",
       "mcp__wonderwhy-er-desktop-commander__read_file",
-      "Read(/C:\\mnt\\c\\Git\\StudyV2\\Create-RAG/**)"
+      "Read(/C:\\mnt\\c\\Git\\StudyV2\\Create-RAG/**)",
+      "Bash(curl:*)",
+      "Bash(playwright install:*)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": [],

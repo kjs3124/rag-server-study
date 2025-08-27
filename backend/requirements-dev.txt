@@ -3,8 +3,6 @@
 
 # Type Stubs for MyPy
 types-Markdown==3.8.0.20250809
-pandas-stubs==2.3.0.250703
-types-pytz==2025.2.0.20250809
 
 # Development Tools
 mypy==1.13.0

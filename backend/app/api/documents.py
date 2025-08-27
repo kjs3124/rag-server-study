@@ -98,14 +98,14 @@ class UrlCrawlRequest(BaseModel):
     """웹 크롤링 요청 모델"""
     
     url: str = Field(description="크롤링할 웹 페이지 URL", examples=["https://example.com"])
-    max_depth: Optional[int] = Field(1, description="크롤링 깊이 (0: 현재 페이지만, 1: 링크 1단계)", ge=0, le=3)
+    max_depth: Optional[int] = Field(0, description="크롤링 깊이 (0: 현재 페이지만, 1: 링크 1단계)", ge=0, le=3)
     same_domain: Optional[bool] = Field(True, description="동일 도메인만 크롤링 여부")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "url": "https://example.com/article",
-                "max_depth": 1,
+                "max_depth": 0,
                 "same_domain": True
             }
         }
@@ -146,11 +146,18 @@ class UrlCrawlRequest(BaseModel):
 async def crawl_url(request: UrlCrawlRequest):
     """URL 크롤링 및 파싱 테스트"""
     
+    # 요청 파라미터 로깅
+    print(f"=== 크롤링 요청 파라미터 ===")
+    print(f"URL: {request.url}")
+    print(f"max_depth: {request.max_depth}")
+    print(f"same_domain: {request.same_domain}")
+    print("=" * 30)
+    
     try:
         # URL 크롤링 (실패하면 여기서 예외 발생)
         parsed_doc = processor.process_url(
             request.url, 
-            max_depth=request.max_depth or 1, 
+            max_depth=request.max_depth or 0, 
             same_domain=request.same_domain or True
         )
         
@@ -162,8 +169,17 @@ async def crawl_url(request: UrlCrawlRequest):
         # HTTPException은 그대로 다시 발생
         raise
     except Exception as e:
+        # 상세한 오류 로깅
+        import traceback
+        error_detail = f"URL 크롤링 실패: {str(e)}"
+        print(f"=== 크롤링 오류 상세 ===")
+        print(f"URL: {request.url}")
+        print(f"오류: {error_detail}")
+        print(f"스택 트레이스: {traceback.format_exc()}")
+        print("=" * 50)
+        
         # 다른 예외는 500 에러로 변환
-        raise HTTPException(status_code=500, detail=f"URL 크롤링 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=error_detail)
     
     # 성공한 경우만 여기 도달
     document_id = str(uuid.uuid4())
@@ -281,7 +297,7 @@ class QueryRequest(BaseModel):
     top_k: Optional[int] = Field(5, description="반환할 최대 청크 수", ge=1, le=20)
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "query": "프로젝트의 주요 기능은 무엇인가요?",
                 "top_k": 5

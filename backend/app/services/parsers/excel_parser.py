@@ -8,7 +8,7 @@ class ExcelParser(BaseDocumentParser):
         
         chunks: List[DocumentChunk] = []
         
-        workbook = load_workbook(file_path, read_only=True, data_only=True)
+        workbook = load_workbook(file_path, read_only=False, data_only=True)
         sheet_names = workbook.sheetnames
         
         for sheet_name in sheet_names:

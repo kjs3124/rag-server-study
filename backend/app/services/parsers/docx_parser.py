@@ -1,8 +1,8 @@
-from typing import List, Any, Dict, Optional
+from typing import List
 import logging
 from docx import Document
 
-from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
+from .base import BaseDocumentParser, ParsedDocument
 
 logger = logging.getLogger(__name__)
 

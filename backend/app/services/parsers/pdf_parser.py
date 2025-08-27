@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, cast
 import logging
 import fitz  # PyMuPDF
 import pdfplumber
@@ -72,9 +72,10 @@ class PDFParser(BaseDocumentParser):
         page_mapping: List[Dict[str, Any]] = []  # 텍스트 위치 → 페이지 매핑
         
         for page_info in page_contents:
-            if page_info['text'].strip():
+            text_content = cast(str, page_info['text'])
+            if text_content.strip():
                 start_pos = len(' '.join(all_text_parts))
-                all_text_parts.append(page_info['text'])
+                all_text_parts.append(text_content)
                 end_pos = len(' '.join(all_text_parts))
                 
                 page_mapping.append({
@@ -104,29 +105,33 @@ class PDFParser(BaseDocumentParser):
         # 페이지 정보 매핑 및 테이블 청크 추가
         for chunk in base_chunks:
             page_info = self._find_chunk_page(chunk.content, full_text, page_mapping)
+            page_tables = cast(List[str], page_info['tables'])
+            page_number = cast(int, page_info['page'])
+            
             chunk.metadata.update({
-                "page_number": page_info['page'],
-                "has_tables": len(page_info['tables']) > 0,
-                "table_count": len(page_info['tables'])
+                "page_number": page_number,
+                "has_tables": len(page_tables) > 0,
+                "table_count": len(page_tables)
             })
-            chunk.page_number = page_info['page']
+            chunk.page_number = page_number
             chunks.append(chunk)
             
             # 테이블이 있으면 별도 청크로 추가
-            for table_idx, table in enumerate(page_info['tables']):
+            table_list: List[str] = cast(List[str], page_tables)
+            for table_idx, table in enumerate(table_list):
                 table_chunk = DocumentChunk(
                     content=f"Table {table_idx + 1}:\\n{table}",
                     metadata={
                         **self._extract_metadata(file_path),
                         **pdf_metadata,
-                        "page_number": page_info['page'],
+                        "page_number": page_number,
                         "chunk_index": f"{chunk.metadata['chunk_index']}_table_{table_idx}",
                         "is_table": True,
                         "table_format": "extracted",
                         "parser": "pdfplumber_table"
                     },
                     chunk_id=f"{chunk.chunk_id}_table_{table_idx}",
-                    page_number=page_info['page']
+                    page_number=page_number
                 )
                 chunks.append(table_chunk)
         
@@ -248,7 +253,7 @@ class PDFParser(BaseDocumentParser):
                 korean_ratio = self._calculate_korean_ratio(full_text)
                 if full_text.strip() and korean_ratio > best_korean_ratio:
                     best_text = ' '.join(full_text.split())
-                    best_korean_ratio = korean_ratio
+                    best_korean_ratio = int(korean_ratio)
         except:
             pass
         
@@ -260,7 +265,7 @@ class PDFParser(BaseDocumentParser):
                 korean_ratio = self._calculate_korean_ratio(clean_text)
                 if korean_ratio > best_korean_ratio:
                     best_text = clean_text
-                    best_korean_ratio = korean_ratio
+                    best_korean_ratio = int(korean_ratio)
         except:
             pass
         
@@ -279,7 +284,7 @@ class PDFParser(BaseDocumentParser):
                 korean_ratio = self._calculate_korean_ratio(full_text)
                 if full_text.strip() and korean_ratio > best_korean_ratio:
                     best_text = ' '.join(full_text.split())
-                    best_korean_ratio = korean_ratio
+                    best_korean_ratio = int(korean_ratio)
         except:
             pass
         
