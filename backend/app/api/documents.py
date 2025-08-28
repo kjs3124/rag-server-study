@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Query
 from typing import Optional
 import os
 import uuid
@@ -6,6 +6,7 @@ from datetime import datetime
 
 from ..services.document_processor import DocumentProcessor
 from ..services.parsers.base import ParsedDocument
+from ..models.chunking_options import ChunkingOptions, UploadRequest, CrawlRequest
 from typing import cast
 
 from pydantic import BaseModel, Field, field_validator
@@ -18,21 +19,64 @@ processor = DocumentProcessor()
 # 메모리에 문서 정보 저장 (테스트용)
 documents_db = {}
 
+# === 응답 모델들 ===
+
+class UploadResponse(BaseModel):
+    """문서 업로드 성공 응답"""
+    success: bool = Field(True, description="업로드 성공 여부")
+    document_id: str = Field(description="생성된 문서 고유 ID")
+    chunks_created: int = Field(description="생성된 청크 수")
+    model_used: str = Field(description="사용된 모델명")
+    file_type: str = Field(description="파일 타입")
+    parser_used: str = Field(description="사용된 파서명")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "document_id": "123e4567-e89b-12d3-a456-426614174000",
+                "chunks_created": 15,
+                "model_used": "parser_test",
+                "file_type": "pdf",
+                "parser_used": "pdf_pymupdf_langchain"
+            }
+        }
+
+class DocumentListResponse(BaseModel):
+    """문서 목록 응답"""
+    documents: list = Field(description="문서 목록")
+    
+class ErrorResponse(BaseModel):
+    """에러 응답"""
+    detail: str = Field(description="에러 메시지")
+
 @router.post("/upload", 
     summary="📄 문서 파일 업로드",
     description="""
     다양한 형식의 문서 파일을 업로드하고 파싱합니다.
     
-    **지원 형식**: PDF, DOCX, XLSX, PPTX, HTML, MD, TXT, CSV
+    지원 형식: PDF, DOCX, XLSX, PPTX, HTML, MD, TXT, CSV
     
-    **처리 과정**:
+    청킹 옵션:
+    • chunk_size: 청크 최대 크기 (100-8000자, 기본값: 1000)
+    • chunk_overlap: 청크 간 오버랩 크기 (미설정시 chunk_size의 10%)
+    
+    처리 과정:
     1. 파일 형식 검증
     2. 서버에 파일 저장
     3. 파서를 통한 내용 추출
-    4. 청크 단위로 분할
+    4. 설정된 청킹 옵션으로 분할
     """,
-    response_description="업로드 성공 시 문서 ID와 처리 결과 반환")
-async def upload_document(file: UploadFile = File(..., description="업로드할 문서 파일")):
+    response_model=UploadResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "잘못된 요청 (지원되지 않는 파일 형식 등)"},
+        500: {"model": ErrorResponse, "description": "서버 내부 오류"}
+    })
+async def upload_document(
+    file: UploadFile = File(..., description="업로드할 문서 파일"),
+    chunk_size: Optional[int] = Form(1000, description="청크 최대 크기 (100-8000자)", ge=100, le=8000),
+    chunk_overlap: Optional[int] = Form(None, description="청크 간 오버랩 크기 (기본값: chunk_size의 10%)", ge=0),
+):
     """파일 업로드 및 파싱 테스트"""
     
     
@@ -59,8 +103,15 @@ async def upload_document(file: UploadFile = File(..., description="업로드할
             content = await file.read()
             buffer.write(content)
         
+        # 청킹 옵션 준비
+        chunking_kwargs = {
+            'chunk_size': chunk_size,
+        }
+        if chunk_overlap is not None:
+            chunking_kwargs['chunk_overlap'] = chunk_overlap
+            
         # 파서로 문서 처리
-        parsed_doc = processor.process_file(file_path)
+        parsed_doc = processor.process_file(file_path, **chunking_kwargs)
         
         # 메모리 DB에 저장
         documents_db[document_id] = {
@@ -74,14 +125,14 @@ async def upload_document(file: UploadFile = File(..., description="업로드할
             "parsed_doc": parsed_doc
         }
         
-        return {
-            "success": True,
-            "document_id": document_id,
-            "chunks_created": len(parsed_doc.chunks),
-            "model_used": "parser_test",  # 파서 테스트용
-            "file_type": parsed_doc.file_type,
-            "parser_used": parsed_doc.metadata.get("parser", "unknown")
-        }
+        return UploadResponse(
+            success=True,
+            document_id=document_id,
+            chunks_created=len(parsed_doc.chunks),
+            model_used="parser_test",  # 파서 테스트용
+            file_type=parsed_doc.file_type or "unknown",
+            parser_used=parsed_doc.metadata.get("parser", "unknown")
+        )
         
     except Exception as e:
         original_error = str(e)
@@ -100,13 +151,17 @@ class UrlCrawlRequest(BaseModel):
     url: str = Field(description="크롤링할 웹 페이지 URL", examples=["https://example.com"])
     max_depth: Optional[int] = Field(0, description="크롤링 깊이 (0: 현재 페이지만, 1: 링크 1단계)", ge=0, le=3)
     same_domain: Optional[bool] = Field(True, description="동일 도메인만 크롤링 여부")
+    chunk_size: Optional[int] = Field(1000, description="청크 최대 크기 (문자 단위)", ge=100, le=8000)
+    chunk_overlap: Optional[int] = Field(None, description="청크 간 오버랩 크기 (문자 단위)")
     
     class Config:
         json_schema_extra = {
             "example": {
                 "url": "https://example.com/article",
                 "max_depth": 0,
-                "same_domain": True
+                "same_domain": True,
+                "chunk_size": 1000,
+                "chunk_overlap": 100
             }
         }
     
@@ -136,13 +191,18 @@ class UrlCrawlRequest(BaseModel):
     description="""
     웹 페이지를 크롤링하여 콘텐츠를 추출합니다.
     
-    **기능**:
-    - 단일/다중 페이지 크롤링
-    - HTML 콘텐츠 파싱
-    - 링크 따라가기 (depth 제어)
-    - 동일 도메인 제한 옵션
+    주요 기능:
+    • 단일/다중 페이지 크롤링
+    • HTML 콘텐츠 파싱
+    • 링크 따라가기 (depth 제어)
+    • 동일 도메인 제한 옵션
+    • 청킹 파라미터 사용자 정의 가능
     """,
-    response_description="크롤링 성공 시 문서 ID와 추출된 청크 수 반환")
+    response_model=UploadResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "잘못된 URL 또는 콘텐츠 없음"},
+        500: {"model": ErrorResponse, "description": "크롤링 실패"}
+    })
 async def crawl_url(request: UrlCrawlRequest):
     """URL 크롤링 및 파싱 테스트"""
     
@@ -154,11 +214,19 @@ async def crawl_url(request: UrlCrawlRequest):
     print("=" * 30)
     
     try:
+        # 청킹 옵션 준비
+        chunking_kwargs = {
+            'chunk_size': request.chunk_size or 1000,
+        }
+        if request.chunk_overlap is not None:
+            chunking_kwargs['chunk_overlap'] = request.chunk_overlap
+            
         # URL 크롤링 (실패하면 여기서 예외 발생)
         parsed_doc = processor.process_url(
             request.url, 
             max_depth=request.max_depth or 0, 
-            same_domain=request.same_domain or True
+            same_domain=request.same_domain or True,
+            **chunking_kwargs
         )
         
         # 크롤링 성공한 경우만 문서 추가
@@ -196,19 +264,19 @@ async def crawl_url(request: UrlCrawlRequest):
         "parsed_doc": parsed_doc
     }
     
-    return {
-        "success": True,
-        "document_id": document_id,
-        "chunks_created": len(parsed_doc.chunks),
-        "model_used": "web_crawler",
-        "file_type": "web",
-        "crawled_urls": parsed_doc.metadata.get("crawled_urls", 1)
-    }
+    return UploadResponse(
+        success=True,
+        document_id=document_id,
+        chunks_created=len(parsed_doc.chunks),
+        model_used="web_crawler",
+        file_type="web",
+        parser_used=f"web_crawler (crawled: {parsed_doc.metadata.get('crawled_urls', 1)} urls)"
+    )
 
 @router.get("",
     summary="📋 문서 목록 조회",
     description="업로드된 모든 문서의 목록을 조회합니다.",
-    response_description="문서 목록과 각 문서의 기본 정보 반환")
+    response_model=DocumentListResponse)
 async def get_documents():
     """업로드된 문서 목록 조회"""
     

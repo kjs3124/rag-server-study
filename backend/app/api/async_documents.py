@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Form
 from typing import Optional, List
 import os
 import uuid
@@ -9,6 +9,12 @@ from ..services.document_processor import DocumentProcessor
 from pydantic import BaseModel, Field, field_validator
 from urllib.parse import urlparse
 import re
+
+# === 응답 모델들 ===
+
+class ErrorResponse(BaseModel):
+    """에러 응답"""
+    detail: str = Field(description="에러 메시지")
 
 router = APIRouter(prefix="/async", tags=["비동기 문서 처리"])
 
@@ -42,6 +48,8 @@ class UrlCrawlRequest(BaseModel):
     url: str = Field(description="크롤링할 웹 페이지 URL")
     max_depth: Optional[int] = Field(0, description="크롤링 깊이", ge=0, le=3)
     same_domain: Optional[bool] = Field(True, description="동일 도메인만 크롤링 여부")
+    chunk_size: Optional[int] = Field(1000, description="청크 최대 크기 (문자 단위)", ge=100, le=8000)
+    chunk_overlap: Optional[int] = Field(None, description="청크 간 오버랩 크기 (문자 단위)")
     
     @field_validator('url')
     def validate_url(cls, v):
@@ -68,15 +76,27 @@ class UrlCrawlRequest(BaseModel):
     description="""
     파일을 비동기로 업로드하고 파싱 작업을 시작합니다.
     
-    **비동기 처리**:
-    - 즉시 task_id 반환
-    - WebSocket으로 실시간 진행상황 확인
-    - `/async/tasks/{task_id}` API로 상태 조회
+    비동기 처리:
+    • 즉시 task_id 반환
+    • WebSocket으로 실시간 진행상황 확인
+    • /async/tasks/{task_id} API로 상태 조회
     
-    **지원 형식**: PDF, DOCX, XLSX, PPTX, HTML, MD, TXT, CSV
+    지원 형식: PDF, DOCX, XLSX, PPTX, HTML, MD, TXT, CSV
+    
+    청킹 옵션:
+    • chunk_size: 청크 최대 크기 (100-8000자, 기본값: 1000)
+    • chunk_overlap: 청크 간 오버랩 크기 (미설정시 chunk_size의 10%)
     """,
-    response_model=TaskResponse)
-async def upload_document_async(file: UploadFile = File(..., description="업로드할 문서 파일")):
+    response_model=TaskResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "잘못된 요청 (지원되지 않는 파일 형식 등)"},
+        500: {"model": ErrorResponse, "description": "서버 내부 오류"}
+    })
+async def upload_document_async(
+    file: UploadFile = File(..., description="업로드할 문서 파일"),
+    chunk_size: Optional[int] = Form(1000, description="청크 최대 크기 (100-8000자)", ge=100, le=8000),
+    chunk_overlap: Optional[int] = Form(None, description="청크 간 오버랩 크기 (기본값: chunk_size의 10%)", ge=0)
+):
     """비동기 파일 업로드"""
     
     # 파일 확장자 검증
@@ -113,7 +133,9 @@ async def upload_document_async(file: UploadFile = File(..., description="업로
                 "filename": file.filename,
                 "file_path": file_path,
                 "file_size": len(content),
-                "file_type": file_info["extension"]
+                "file_type": file_info["extension"],
+                "chunk_size": chunk_size,
+                "chunk_overlap": chunk_overlap
             }
         )
         
@@ -142,12 +164,17 @@ async def upload_document_async(file: UploadFile = File(..., description="업로
     description="""
     웹 페이지를 비동기로 크롤링하고 파싱 작업을 시작합니다.
     
-    **비동기 처리**:
-    - 즉시 task_id 반환
-    - WebSocket으로 실시간 진행상황 확인
-    - 크롤링 깊이 및 도메인 제한 설정 가능
+    비동기 처리:
+    • 즉시 task_id 반환
+    • WebSocket으로 실시간 진행상황 확인
+    • 크롤링 깊이 및 도메인 제한 설정 가능
+    • 청킹 파라미터 사용자 정의 가능
     """,
-    response_model=TaskResponse)
+    response_model=TaskResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "잘못된 URL 또는 매개변수"},
+        500: {"model": ErrorResponse, "description": "서버 내부 오류"}
+    })
 async def crawl_url_async(request: UrlCrawlRequest):
     """비동기 웹 크롤링"""
     
@@ -158,7 +185,9 @@ async def crawl_url_async(request: UrlCrawlRequest):
             metadata={
                 "url": request.url,
                 "max_depth": request.max_depth,
-                "same_domain": request.same_domain
+                "same_domain": request.same_domain,
+                "chunk_size": request.chunk_size,
+                "chunk_overlap": request.chunk_overlap
             }
         )
         

@@ -18,19 +18,19 @@ from app.api.websocket import router as websocket_router
 app = FastAPI(
     title="RAG System API",
     description="""
-    ## 📚 Retrieval-Augmented Generation System
+    📚 Retrieval-Augmented Generation System
     
     문서 업로드, 파싱, 벡터 검색을 통한 질의응답 시스템
     
-    ### 주요 기능:
-    - 📄 다양한 형식 문서 업로드 (PDF, DOCX, Excel, PPT 등)
-    - 🌐 웹 크롤링 및 콘텐츠 파싱  
-    - 🔍 의미 기반 문서 검색
-    - 💬 질의응답 시스템
+    주요 기능:
+    • 다양한 형식 문서 업로드 (PDF, DOCX, Excel, PPT 등)
+    • 웹 크롤링 및 콘텐츠 파싱
+    • 청킹 파라미터 사용자 정의
+    • 동기/비동기 처리 지원
+    • 실시간 작업 상태 추적
     
-    ### 지원 파일 형식:
-    - PDF, DOCX, XLSX, PPTX
-    - HTML, Markdown, TXT, CSV
+    지원 파일 형식:
+    PDF, DOCX, XLSX, PPTX, HTML, Markdown, TXT, CSV
     """,
     version="1.0.0",
     contact={

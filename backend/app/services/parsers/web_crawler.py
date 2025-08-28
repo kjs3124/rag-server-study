@@ -175,7 +175,7 @@ class WebCrawlerParser(BaseDocumentParser):
                                 if href and isinstance(href, str) and href.strip():
                                     links.append(href)
                         
-                        chunks = self._create_chunks_from_text(clean_text, url)
+                        chunks = self._create_chunks_from_text(clean_text, url, **kwargs)
                         return chunks, links
             except Exception as e:
                 print(f"trafilatura 실패: {e}, requests 폴백 시도")
@@ -209,51 +209,32 @@ class WebCrawlerParser(BaseDocumentParser):
             if href and isinstance(href, str) and href.strip():
                 links.append(href)
         
-        chunks = self._create_chunks_from_text(clean_text, url)
+        chunks = self._create_chunks_from_text(clean_text, url, **kwargs)
         return chunks, links
     
     # Playwright 메소드 제거됨
     
-    def _create_chunks_from_text(self, text: str, source_url: str, chunk_size: int = 1000) -> List[DocumentChunk]:
-        """텍스트에서 청크 생성"""
-        chunks: List[DocumentChunk] = []
-        words = text.split()
+    def _create_chunks_from_text(self, text: str, source_url: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> List[DocumentChunk]:
+        """텍스트에서 청크 생성 (LangChain 기반)"""
+        # 기본 매타데이타 준비
+        base_metadata = {
+            "source_url": source_url,
+            "source_type": "web",
+            "parser": "web_crawler"
+        }
         
-        current_chunk: List[str] = []
-        current_size = 0
+        # 기본 클래스의 LangChain 청킹 사용
+        chunks = self._create_langchain_chunks(
+            text=text,
+            chunk_size=chunk_size,
+            file_path=source_url,  # URL을 file_path로 사용
+            chunk_overlap=chunk_overlap,
+            **base_metadata
+        )
         
-        for word in words:
-            word_size = len(word) + 1
-            if current_size + word_size > chunk_size and current_chunk:
-                chunk_text = ' '.join(current_chunk)
-                chunk = DocumentChunk(
-                    content=chunk_text,
-                    metadata={
-                        "source_url": source_url,
-                        "source_type": "web",
-                        "chunk_size": len(chunk_text)
-                    },
-                    chunk_id=f"web_{len(chunks):04d}_{urlparse(source_url).netloc}",
-                )
-                chunks.append(chunk)
-                current_chunk = [word]
-                current_size = word_size
-            else:
-                current_chunk.append(word)
-                current_size += word_size
-        
-        if current_chunk:
-            chunk_text = ' '.join(current_chunk)
-            chunk = DocumentChunk(
-                content=chunk_text,
-                metadata={
-                    "source_url": source_url,
-                    "source_type": "web",
-                    "chunk_size": len(chunk_text)
-                },
-                chunk_id=f"web_{len(chunks):04d}_{urlparse(source_url).netloc}",
-            )
-            chunks.append(chunk)
+        # 청크 ID를 웹 크롤러용으로 수정
+        for i, chunk in enumerate(chunks):
+            chunk.chunk_id = f"web_{i:04d}_{urlparse(source_url).netloc}"
         
         return chunks
     

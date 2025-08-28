@@ -55,7 +55,26 @@ export interface QueryOptions {
   temperature?: number;
 }
 
-export interface CrawlOptions {
+// URL 크롤링 요청
+export interface CrawlRequest extends ChunkingOptions {
+  url: string;
+  max_depth?: number;
+  same_domain?: boolean;
+}
+
+// 청킹 옵션
+export interface ChunkingOptions {
+  chunk_size?: number;  // 기본값: 1000 (100-8000)
+  chunk_overlap?: number;  // 기본값: chunk_size의 10%
+  separators?: string[];  // 텍스트 분할 구분자
+}
+
+// 파일 업로드 요청 옵션
+export interface UploadOptions extends ChunkingOptions {
+  // 추후 추가 옵션들...
+}
+
+export interface CrawlOptions extends ChunkingOptions {
   max_depth?: number;
   same_domain?: boolean;
 }

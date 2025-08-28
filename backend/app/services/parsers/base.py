@@ -57,6 +57,7 @@ class BaseDocumentParser(ABC):
             }
     
     def _create_langchain_chunks(self, text: str, chunk_size: int, file_path: str, 
+                                chunk_overlap: Optional[int] = None,
                                 separators: Optional[List[str]] = None, **metadata) -> List[DocumentChunk]:
         """LangChain RecursiveCharacterTextSplitter를 사용한 공통 청킹 메서드"""
         
@@ -69,9 +70,12 @@ class BaseDocumentParser(ABC):
             ""       # 문자 구분
         ]
         
+        # chunk_overlap이 지정되지 않으면 기본값(10%) 사용
+        actual_chunk_overlap = chunk_overlap if chunk_overlap is not None else int(chunk_size * 0.1)
+        
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
-            chunk_overlap=int(chunk_size * 0.1),  # 10% 오버랩
+            chunk_overlap=actual_chunk_overlap,
             length_function=len,
             separators=separators or default_separators
         )

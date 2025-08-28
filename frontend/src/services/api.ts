@@ -6,6 +6,8 @@ import {
   HealthStatus,
   QueryOptions,
   CrawlOptions,
+  UploadOptions,
+  CrawlRequest,
   AsyncTaskResponse,
   TaskStatusResponse
 } from '../types';
@@ -32,9 +34,17 @@ class RAGApiService {
   }
 
   // 문서 업로드
-  async uploadDocument(file: File): Promise<UploadResponse> {
+  async uploadDocument(file: File, options?: UploadOptions): Promise<UploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
+    
+    // 청킹 옵션이 있으면 추가
+    if (options?.chunk_size) {
+      formData.append('chunk_size', options.chunk_size.toString());
+    }
+    if (options?.chunk_overlap) {
+      formData.append('chunk_overlap', options.chunk_overlap.toString());
+    }
 
     const response: AxiosResponse<UploadResponse> = await this.api.post(
       '/documents/upload',
@@ -103,11 +113,19 @@ class RAGApiService {
   // =========================
 
   // 비동기 문서 업로드
-  async uploadDocumentAsync(file: File): Promise<AsyncTaskResponse> {
+  async uploadDocumentAsync(file: File, options?: UploadOptions): Promise<AsyncTaskResponse> {
     const result = await retry(
       async () => {
         const formData = new FormData();
         formData.append('file', file);
+        
+        // 청킹 옵션이 있으면 추가
+        if (options?.chunk_size) {
+          formData.append('chunk_size', options.chunk_size.toString());
+        }
+        if (options?.chunk_overlap) {
+          formData.append('chunk_overlap', options.chunk_overlap.toString());
+        }
 
         const response: AxiosResponse<AsyncTaskResponse> = await this.api.post(
           '/documents/async/upload',
@@ -141,13 +159,23 @@ class RAGApiService {
   async crawlUrlAsync(url: string, options?: CrawlOptions): Promise<AsyncTaskResponse> {
     const result = await retry(
       async () => {
+        const requestData: CrawlRequest = {
+          url,
+          max_depth: options?.max_depth || 0,
+          same_domain: options?.same_domain !== false,
+        };
+        
+        // 청킹 옵션이 있으면 추가
+        if (options?.chunk_size) {
+          requestData.chunk_size = options.chunk_size;
+        }
+        if (options?.chunk_overlap) {
+          requestData.chunk_overlap = options.chunk_overlap;
+        }
+
         const response: AxiosResponse<AsyncTaskResponse> = await this.api.post(
           '/documents/async/crawl',
-          {
-            url,
-            max_depth: options?.max_depth || 0,
-            same_domain: options?.same_domain !== false,
-          },
+          requestData,
           {
             timeout: 10000, // 10초로 단축 (즉시 응답)
           }

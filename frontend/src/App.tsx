@@ -69,14 +69,14 @@ const App: React.FC = () => {
   const handleUploadSuccess = async (response: UploadResponse) => {
     console.log('Upload success:', response);
     
-    // 비동기 업로드는 DB에 저장 안하므로 목록 새로고침 하지 않음
-    // (추후 DB 저장 로직 구현 시 주석 해제)
-    // try {
-    //   const updatedDocs = await apiService.getDocuments();
-    //   setDocuments(updatedDocs);
-    // } catch (error) {
-    //   console.error('Failed to refresh documents:', error);
-    // }
+    // 문서 목록 새로고침 (백엔드에서 documents_db에 저장됨)
+    try {
+      const updatedDocs = await apiService.getDocuments();
+      setDocuments(updatedDocs);
+      console.log('Documents refreshed:', updatedDocs.length);
+    } catch (error) {
+      console.error('Failed to refresh documents:', error);
+    }
   };
 
   const handleDeleteDocument = async (id: string) => {

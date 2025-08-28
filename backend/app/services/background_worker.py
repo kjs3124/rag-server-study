@@ -75,6 +75,8 @@ class BackgroundWorker:
         """파일 업로드 처리"""
         file_path = metadata.get("file_path")
         filename = metadata.get("filename")
+        chunk_size = metadata.get("chunk_size", 1000)
+        chunk_overlap = metadata.get("chunk_overlap")
         
         if not file_path or not os.path.exists(file_path):
             raise FileNotFoundError(f"파일을 찾을 수 없습니다: {file_path}")
@@ -82,9 +84,19 @@ class BackgroundWorker:
         # 진행상황 업데이트: 파싱 시작
         await task_notifier.notify_progress(task_id, 20, "파일 파싱을 시작합니다")
         
+        # 청킹 옵션 준비
+        chunking_kwargs = {
+            'chunk_size': chunk_size,
+        }
+        if chunk_overlap is not None:
+            chunking_kwargs['chunk_overlap'] = chunk_overlap
+        
         # 문서 처리 (동기 함수를 비동기로 실행)
         loop = asyncio.get_event_loop()
-        parsed_doc = await loop.run_in_executor(None, self.processor.process_file, file_path)
+        parsed_doc = await loop.run_in_executor(
+            None, 
+            lambda: self.processor.process_file(file_path, **chunking_kwargs)
+        )
         
         # 진행상황 업데이트: 파싱 완료
         await task_notifier.notify_progress(task_id, 80, "파싱이 완료되었습니다")
@@ -98,7 +110,20 @@ class BackgroundWorker:
             "vector_ids": []  # 실제 벡터 ID 배열 (현재는 빈 배열)
         }
         
-        # 처리된 문서 정보를 메타데이터에 저장 (실제로는 DB에 저장해야 함)
+        # documents_db에 저장 (동기 API와 동일하게)
+        from ..api.documents import documents_db
+        documents_db[task_id] = {
+            "id": task_id,
+            "filename": filename,
+            "file_size": metadata.get("file_size", 0),
+            "chunks_count": len(parsed_doc.chunks),
+            "upload_time": datetime.now().isoformat(),
+            "status": "completed",
+            "file_path": file_path,
+            "parsed_doc": parsed_doc
+        }
+        
+        # 처리된 문서 정보를 메타데이터에 저장
         task_manager.update_task(task_id, metadata={
             **metadata,
             "parsed_doc": {
@@ -133,12 +158,20 @@ class BackgroundWorker:
         # 진행상황 업데이트
         await task_notifier.notify_progress(task_id, 30, "페이지 내용을 분석 중입니다")
         
+        # 청킹 파라미터 처리
+        chunk_size = metadata.get("chunk_size", 1000)
+        chunk_overlap = metadata.get("chunk_overlap")
+        
+        # 청킹 옵션 준비
+        chunking_kwargs = {
+            'chunk_size': chunk_size,
+        }
+        if chunk_overlap is not None:
+            chunking_kwargs['chunk_overlap'] = chunk_overlap
+        
         parsed_doc = await loop.run_in_executor(
             None, 
-            crawler.parse, 
-            url, 
-            max_depth,
-            same_domain
+            lambda: crawler.parse(url, max_depth, same_domain, **chunking_kwargs)
         )
         
         # 진행상황 업데이트: 크롤링 완료
@@ -151,6 +184,19 @@ class BackgroundWorker:
             "chunks_created": len(parsed_doc.chunks),  # chunks_created로 변경
             "model_used": parsed_doc.metadata.get("parser", "unknown"),
             "vector_ids": []  # 실제 벡터 ID 배열 (현재는 빈 배열)
+        }
+        
+        # documents_db에 저장 (동기 API와 동일하게)
+        from ..api.documents import documents_db
+        documents_db[task_id] = {
+            "id": task_id,
+            "filename": f"crawled_{url.replace('://', '_').replace('/', '_')[:50]}",
+            "file_size": sum(len(chunk.content) for chunk in parsed_doc.chunks),
+            "chunks_count": len(parsed_doc.chunks),
+            "upload_time": datetime.now().isoformat(),
+            "status": "completed",
+            "file_path": url,
+            "parsed_doc": parsed_doc
         }
         
         # 처리된 문서 정보를 메타데이터에 저장
