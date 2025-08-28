@@ -89,15 +89,13 @@ class BackgroundWorker:
         # 진행상황 업데이트: 파싱 완료
         await task_notifier.notify_progress(task_id, 80, "파싱이 완료되었습니다")
         
-        # 결과 준비
+        # 결과 준비 (프론트엔드 UploadResponse 구조에 맞춤)
         result = {
+            "success": True,
             "document_id": task_id,
-            "filename": filename,
-            "chunks_count": len(parsed_doc.chunks),
-            "file_type": parsed_doc.file_type,
-            "parser_used": parsed_doc.metadata.get("parser", "unknown"),
-            "file_size": os.path.getsize(file_path) if os.path.exists(file_path) else 0,
-            "processed_at": datetime.now().isoformat()
+            "chunks_created": len(parsed_doc.chunks),  # chunks_created로 변경
+            "model_used": parsed_doc.metadata.get("parser", "unknown"),
+            "vector_ids": []  # 실제 벡터 ID 배열 (현재는 빈 배열)
         }
         
         # 처리된 문서 정보를 메타데이터에 저장 (실제로는 DB에 저장해야 함)
@@ -146,15 +144,13 @@ class BackgroundWorker:
         # 진행상황 업데이트: 크롤링 완료
         await task_notifier.notify_progress(task_id, 90, "크롤링이 완료되었습니다")
         
-        # 결과 준비
+        # 결과 준비 (프론트엔드 UploadResponse 구조에 맞춤)
         result = {
+            "success": True,
             "document_id": task_id,
-            "url": url,
-            "chunks_count": len(parsed_doc.chunks),
-            "crawled_urls": parsed_doc.metadata.get("crawled_urls", 1),
-            "max_depth": max_depth,
-            "parser_used": parsed_doc.metadata.get("parser", "unknown"),
-            "processed_at": datetime.now().isoformat()
+            "chunks_created": len(parsed_doc.chunks),  # chunks_created로 변경
+            "model_used": parsed_doc.metadata.get("parser", "unknown"),
+            "vector_ids": []  # 실제 벡터 ID 배열 (현재는 빈 배열)
         }
         
         # 처리된 문서 정보를 메타데이터에 저장

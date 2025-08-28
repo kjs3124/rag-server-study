@@ -69,3 +69,47 @@ export interface AppState {
   apiStatus: 'connected' | 'disconnected' | 'error';
   error: string | null;
 }
+
+// 비동기 API 관련 타입들
+export interface AsyncTaskResponse {
+  success: boolean;
+  task_id: string;
+  message: string;
+  estimated_time?: string;
+}
+
+export interface TaskStatusResponse {
+  task_id: string;
+  task_type: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  progress: number;
+  message: string;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  result?: UploadResponse;
+  error?: string;
+}
+
+// WebSocket 메시지 타입들
+export interface WebSocketMessage {
+  type: 'task_update' | 'connection' | 'error';
+  task_id?: string;
+  status?: TaskStatusResponse['status'];
+  progress?: number;
+  message?: string;
+  result?: UploadResponse;
+  error?: string;
+}
+
+// 업로드 작업 상태 추적
+export interface UploadTask {
+  task_id: string;
+  filename: string;
+  status: TaskStatusResponse['status'];
+  progress: number;
+  message: string;
+  startTime: Date;
+  result?: UploadResponse;
+  error?: string;
+}

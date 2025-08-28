@@ -1,14 +1,17 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { DocumentIcon, CloudArrowUpIcon, XMarkIcon, EyeIcon } from '@heroicons/react/24/outline';
-import { DocumentInfo, UploadResponse, CrawlOptions } from '../types';
+import { DocumentInfo, UploadResponse, CrawlOptions, AsyncTaskResponse } from '../types';
 import apiService from '../services/api';
+import { useTaskManager } from '../hooks/useTaskManager';
+import TaskManager from './TaskManager';
 
 interface DocumentUploadProps {
   documents: DocumentInfo[];
   onUploadSuccess: (response: UploadResponse) => void;
   onDeleteDocument: (id: string) => void;
   onViewDocument: (id: string) => void;
+  useAsyncMode?: boolean;
 }
 
 const DocumentUpload: React.FC<DocumentUploadProps> = ({
@@ -16,30 +19,64 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
   onUploadSuccess,
   onDeleteDocument,
   onViewDocument,
+  useAsyncMode = true,
 }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const [isCrawling, setIsCrawling] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  
+  // Task Manager 훅 사용
+  const taskManager = useTaskManager({
+    onTaskComplete: (taskId: string, result: UploadResponse) => {
+      console.log('Task completed:', taskId, result);
+      alert(`문서가 성공적으로 업로드되었습니다. (${result.chunks_created}개 청크 생성)`);
+      onUploadSuccess(result); // 부모에서 문서 목록 업데이트 필요
+    },
+    onTaskError: (taskId: string, error: string) => {
+      console.error('Task failed:', taskId, error);
+      alert(`작업 실패: ${error}`);
+    }
+  });
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    for (const file of acceptedFiles) {
-      setIsUploading(true);
-      setUploadProgress(0);
-      
-      try {
-        const response = await apiService.uploadDocument(file);
-        onUploadSuccess(response);
-        setUploadProgress(100);
-      } catch (error) {
-        console.error('Upload failed:', error);
-        alert('파일 업로드에 실패했습니다.');
-      } finally {
-        setIsUploading(false);
-        setTimeout(() => setUploadProgress(0), 1000);
+    if (useAsyncMode) {
+      // 비동기 모드: 각 파일을 개별 작업으로 처리
+      for (const file of acceptedFiles) {
+        try {
+          const response: AsyncTaskResponse = await apiService.uploadDocumentAsync(file);
+          if (response.success && response.task_id) {
+            taskManager.addTask(response.task_id, file.name);
+            console.log(`Task created for ${file.name}:`, response.task_id);
+            // 비동기 모드에서는 즉시 성공 메시지를 표시하지 않음 (WebSocket으로 나중에 전달됨)
+          } else {
+            alert(`${file.name} 업로드 시작에 실패했습니다: ${response.message}`);
+          }
+        } catch (error) {
+          console.error('Async upload failed:', error);
+          alert(`${file.name} 업로드에 실패했습니다.`);
+        }
+      }
+    } else {
+      // 동기 모드: 기존 방식 유지
+      for (const file of acceptedFiles) {
+        setIsUploading(true);
+        setUploadProgress(0);
+        
+        try {
+          const response = await apiService.uploadDocument(file);
+          onUploadSuccess(response);
+          setUploadProgress(100);
+        } catch (error) {
+          console.error('Upload failed:', error);
+          alert('파일 업로드에 실패했습니다.');
+        } finally {
+          setIsUploading(false);
+          setTimeout(() => setUploadProgress(0), 1000);
+        }
       }
     }
-  }, [onUploadSuccess]);
+  }, [onUploadSuccess, useAsyncMode, taskManager]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -61,15 +98,31 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
     if (!urlInput.trim()) return;
     
     setIsCrawling(true);
+    
     try {
       const options: CrawlOptions = {
         max_depth: 1,
         same_domain: true,
       };
       
-      const response = await apiService.crawlUrl(urlInput, options);
-      onUploadSuccess(response);
-      setUrlInput('');
+      if (useAsyncMode) {
+        // 비동기 모드: 작업 생성 후 실시간 추적
+        const response: AsyncTaskResponse = await apiService.crawlUrlAsync(urlInput, options);
+        
+        if (response.success && response.task_id) {
+          taskManager.addTask(response.task_id, `웹 크롤링: ${urlInput}`);
+          console.log(`Crawl task created for ${urlInput}:`, response.task_id);
+          setUrlInput(''); // 입력 초기화
+          // 비동기 모드에서는 즉시 성공 메시지를 표시하지 않음 (WebSocket으로 나중에 전달됨)
+        } else {
+          alert(`URL 크롤링 시작에 실패했습니다: ${response.message}`);
+        }
+      } else {
+        // 동기 모드: 기존 방식 유지
+        const response = await apiService.crawlUrl(urlInput, options);
+        onUploadSuccess(response);
+        setUrlInput('');
+      }
     } catch (error) {
       console.error('URL crawling failed:', error);
       alert('URL 크롤링에 실패했습니다.');
@@ -100,7 +153,7 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
               ? 'border-primary bg-blue-50' 
               : 'border-gray-300 hover:border-gray-400'
             }
-            ${isUploading ? 'pointer-events-none opacity-50' : ''}
+            ${(isUploading || (useAsyncMode && taskManager.getActiveTasksCount() > 0)) ? 'pointer-events-none opacity-50' : ''}
           `}
         >
           <input {...getInputProps()} />
@@ -120,8 +173,8 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
           )}
         </div>
 
-        {/* 업로드 진행률 */}
-        {uploadProgress > 0 && (
+        {/* 업로드 진행률 - 동기 모드일 때만 표시 */}
+        {!useAsyncMode && uploadProgress > 0 && (
           <div className="mt-4">
             <div className="bg-gray-200 rounded-full h-2">
               <div
@@ -130,6 +183,16 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
               ></div>
             </div>
             <p className="text-sm text-gray-600 mt-1">업로드 중... {uploadProgress}%</p>
+          </div>
+        )}
+        
+        {/* 비동기 모드 안내 메시지 */}
+        {useAsyncMode && taskManager.getActiveTasksCount() > 0 && (
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+            <p className="text-sm text-blue-800">
+              📊 {taskManager.getActiveTasksCount()}개의 작업이 진행 중입니다. 
+              우측 하단에서 실시간 진행 상황을 확인하세요.
+            </p>
           </div>
         )}
       </div>
@@ -149,8 +212,9 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
           />
           <button
             onClick={handleUrlCrawl}
-            disabled={!urlInput.trim() || isCrawling}
+            disabled={!urlInput.trim() || isCrawling || (useAsyncMode && taskManager.getActiveTasksCount() >= 3)}
             className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            title={useAsyncMode && taskManager.getActiveTasksCount() >= 3 ? '동시 작업은 최대 3개까지 가능합니다.' : ''}
           >
             {isCrawling ? 'Crawling...' : 'Crawl'}
           </button>
@@ -209,6 +273,9 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
           </div>
         )}
       </div>
+      
+      {/* Task Manager - 비동기 모드일 때만 표시 */}
+      {useAsyncMode && <TaskManager />}
     </div>
   );
 };
