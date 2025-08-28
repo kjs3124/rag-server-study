@@ -132,10 +132,15 @@ class BackgroundWorker:
         # 결과 준비 (프론트엔드 UploadResponse 구조에 맞춤)
         result = {
             "success": True,
-            "document_id": task_id,
-            "chunks_created": len(parsed_doc.chunks),  # chunks_created로 변경
-            "model_used": parsed_doc.metadata.get("parser", "unknown"),
-            "vector_ids": []  # 실제 벡터 ID 배열 (현재는 빈 배열)
+            "message": "업로드 완료",
+            "timestamp": datetime.now().isoformat(),
+            "data": {
+                "document_id": task_id,
+                "chunks_created": len(parsed_doc.chunks),
+                "model_used": parsed_doc.metadata.get("parser", "unknown"),
+                "file_type": parsed_doc.file_type or "unknown",
+                "parser_used": parsed_doc.metadata.get("parser", "unknown")
+            }
         }
         
         # documents_db에 저장 (동기 API와 동일하게)
@@ -202,7 +207,7 @@ class BackgroundWorker:
         
         parsed_doc = await loop.run_in_executor(
             None, 
-            lambda: crawler.parse(url, max_depth, same_domain, **chunking_kwargs)
+            lambda: crawler.parse(url, chunk_size, chunk_overlap, max_depth, same_domain)
         )
         
         # 진행상황 업데이트: 크롤링 완료
@@ -211,10 +216,15 @@ class BackgroundWorker:
         # 결과 준비 (프론트엔드 UploadResponse 구조에 맞춤)
         result = {
             "success": True,
-            "document_id": task_id,
-            "chunks_created": len(parsed_doc.chunks),  # chunks_created로 변경
-            "model_used": parsed_doc.metadata.get("parser", "unknown"),
-            "vector_ids": []  # 실제 벡터 ID 배열 (현재는 빈 배열)
+            "message": "업로드 완료",
+            "timestamp": datetime.now().isoformat(),
+            "data": {
+                "document_id": task_id,
+                "chunks_created": len(parsed_doc.chunks),
+                "model_used": parsed_doc.metadata.get("parser", "unknown"),
+                "file_type": parsed_doc.file_type or "unknown",
+                "parser_used": parsed_doc.metadata.get("parser", "unknown")
+            }
         }
         
         # documents_db에 저장 (동기 API와 동일하게)

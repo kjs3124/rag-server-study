@@ -581,7 +581,7 @@ async def get_system_status():
                 "memory_usage": memory_info,
                 "documents_count": len(documents_db),
                 "total_chunks": sum(
-                    len(doc.get("parsed_doc", {}).get("chunks", []))
+                    doc.get("chunks_count", 0) if isinstance(doc, dict) else 0
                     for doc in documents_db.values()
                 )
             }
