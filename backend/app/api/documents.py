@@ -51,21 +51,20 @@ class ErrorResponse(BaseModel):
     detail: str = Field(description="에러 메시지")
 
 @router.post("/upload", 
-    summary="📄 문서 파일 업로드",
+    summary="📄 동기 파일 업로드",
     description="""
-    다양한 형식의 문서 파일을 업로드하고 파싱합니다.
+    파일을 즉시 업로드하고 파싱을 완료한 후 결과를 반환합니다.
+    
+    동기 처리:
+    • 업로드 완료까지 대기 후 결과 반환
+    • 실시간 처리 상태 확인 불가
+    • 소용량 파일에 적합
     
     지원 형식: PDF, DOCX, XLSX, PPTX, HTML, MD, TXT, CSV
     
     청킹 옵션:
     • chunk_size: 청크 최대 크기 (100-8000자, 기본값: 1000)
-    • chunk_overlap: 청크 간 오버랩 크기 (미설정시 chunk_size의 10%)
-    
-    처리 과정:
-    1. 파일 형식 검증
-    2. 서버에 파일 저장
-    3. 파서를 통한 내용 추출
-    4. 설정된 청킹 옵션으로 분할
+    • chunk_overlap: 청크 간 오버랩 크기 (기본값: chunk_size의 10%)
     """,
     response_model=UploadResponse,
     responses={
@@ -152,7 +151,7 @@ class UrlCrawlRequest(BaseModel):
     max_depth: Optional[int] = Field(0, description="크롤링 깊이 (0: 현재 페이지만, 1: 링크 1단계)", ge=0, le=3)
     same_domain: Optional[bool] = Field(True, description="동일 도메인만 크롤링 여부")
     chunk_size: Optional[int] = Field(1000, description="청크 최대 크기 (문자 단위)", ge=100, le=8000)
-    chunk_overlap: Optional[int] = Field(None, description="청크 간 오버랩 크기 (문자 단위)")
+    chunk_overlap: Optional[int] = Field(None, description="청크 간 오버랩 크기 (기본값: chunk_size의 10%)")
     
     class Config:
         json_schema_extra = {
@@ -187,16 +186,22 @@ class UrlCrawlRequest(BaseModel):
         return v
 
 @router.post("/url",
-    summary="🌐 웹 페이지 크롤링",
+    summary="🌐 동기 웹 크롤링",
     description="""
-    웹 페이지를 크롤링하여 콘텐츠를 추출합니다.
+    웹 페이지를 즉시 크롤링하고 파싱을 완료한 후 결과를 반환합니다.
     
-    주요 기능:
-    • 단일/다중 페이지 크롤링
-    • HTML 콘텐츠 파싱
-    • 링크 따라가기 (depth 제어)
-    • 동일 도메인 제한 옵션
-    • 청킹 파라미터 사용자 정의 가능
+    동기 처리:
+    • 크롤링 완료까지 대기 후 결과 반환
+    • 실시간 처리 상태 확인 불가
+    • 단일 페이지 크롤링에 적합
+    
+    크롤링 옵션:
+    • max_depth: 크롤링 깊이 (0-3단계, 기본값: 0)
+    • same_domain: 동일 도메인만 크롤링 (기본값: true)
+    
+    청킹 옵션:
+    • chunk_size: 청크 최대 크기 (100-8000자, 기본값: 1000)
+    • chunk_overlap: 청크 간 오버랩 크기 (기본값: chunk_size의 10%)
     """,
     response_model=UploadResponse,
     responses={
@@ -275,7 +280,15 @@ async def crawl_url(request: UrlCrawlRequest):
 
 @router.get("",
     summary="📋 문서 목록 조회",
-    description="업로드된 모든 문서의 목록을 조회합니다.",
+    description="""
+    시스템에 업로드된 모든 문서의 목록을 조회합니다.
+    
+    반환 정보:
+    • 문서 ID 및 파일명
+    • 파일 크기 및 청크 개수
+    • 업로드 시간 및 처리 상태
+    • 동기/비동기 업로드 구분 없이 모든 문서 표시
+    """,
     response_model=DocumentListResponse)
 async def get_documents():
     """업로드된 문서 목록 조회"""
@@ -293,7 +306,16 @@ async def get_documents():
     
     return {"documents": documents}
 
-@router.get("/{document_id}")
+@router.get("/{document_id}",
+    summary="📄 문서 상세 조회",
+    description="""
+    특정 문서의 상세 정보와 청크 데이터를 조회합니다.
+    
+    반환 정보:
+    • 문서 메타데이터 (ID, 파일명, 크기, 업로드 시간 등)
+    • 파싱된 모든 청크의 내용과 메타데이터
+    • 페이지 번호 및 섹션 정보 (해당되는 경우)
+    """)
 async def get_document(document_id: str):
     """특정 문서 정보 및 청크 조회"""
     
@@ -328,7 +350,16 @@ async def get_document(document_id: str):
         "chunks": chunks
     }
 
-@router.delete("/{document_id}")
+@router.delete("/{document_id}",
+    summary="🗑️ 문서 삭제",
+    description="""
+    시스템에서 문서와 관련 데이터를 삭제합니다.
+    
+    삭제 대상:
+    • 문서 메타데이터 및 청크 데이터
+    • 저장된 파일 (해당되는 경우)
+    • 문서 목록에서 제거
+    """)
 async def delete_document(document_id: str):
     """문서 삭제"""
     
@@ -377,12 +408,16 @@ class QueryRequest(BaseModel):
     description="""
     업로드된 문서들을 대상으로 질의응답을 수행합니다.
     
-    **기능**:
-    - 의미 기반 문서 검색
-    - 관련 청크 추출
-    - 질문에 대한 답변 생성
+    동기 처리:
+    • 즉시 검색 수행 후 결과 반환
+    • 실시간 검색 상태 확인 불가
+    • 간단한 질의응답에 적합
     
-    *현재는 파서 테스트용 가짜 응답을 반환합니다.*
+    검색 옵션:
+    • top_k: 반환할 최대 청크 수 (1-20개, 기본값: 5)
+    • 의미 기반 유사도 검색
+    
+    현재 상태: 파서 테스트용 구현 (실제 벡터 검색 미구현)
     """,
     response_description="질문에 대한 답변과 관련 문서 청크들 반환",
     deprecated=True)

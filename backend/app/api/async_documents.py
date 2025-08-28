@@ -49,7 +49,7 @@ class UrlCrawlRequest(BaseModel):
     max_depth: Optional[int] = Field(0, description="크롤링 깊이", ge=0, le=3)
     same_domain: Optional[bool] = Field(True, description="동일 도메인만 크롤링 여부")
     chunk_size: Optional[int] = Field(1000, description="청크 최대 크기 (문자 단위)", ge=100, le=8000)
-    chunk_overlap: Optional[int] = Field(None, description="청크 간 오버랩 크기 (문자 단위)")
+    chunk_overlap: Optional[int] = Field(None, description="청크 간 오버랩 크기 (기본값: chunk_size의 10%)")
     
     @field_validator('url')
     def validate_url(cls, v):
@@ -85,7 +85,7 @@ class UrlCrawlRequest(BaseModel):
     
     청킹 옵션:
     • chunk_size: 청크 최대 크기 (100-8000자, 기본값: 1000)
-    • chunk_overlap: 청크 간 오버랩 크기 (미설정시 chunk_size의 10%)
+    • chunk_overlap: 청크 간 오버랩 크기 (기본값: chunk_size의 10%)
     """,
     response_model=TaskResponse,
     responses={
@@ -167,8 +167,15 @@ async def upload_document_async(
     비동기 처리:
     • 즉시 task_id 반환
     • WebSocket으로 실시간 진행상황 확인
-    • 크롤링 깊이 및 도메인 제한 설정 가능
-    • 청킹 파라미터 사용자 정의 가능
+    • /async/tasks/{task_id} API로 상태 조회
+    
+    크롤링 옵션:
+    • max_depth: 크롤링 깊이 (0-3단계, 기본값: 0)
+    • same_domain: 동일 도메인만 크롤링 (기본값: true)
+    
+    청킹 옵션:
+    • chunk_size: 청크 최대 크기 (100-8000자, 기본값: 1000)
+    • chunk_overlap: 청크 간 오버랩 크기 (기본값: chunk_size의 10%)
     """,
     response_model=TaskResponse,
     responses={

@@ -14,7 +14,7 @@ class ChunkingOptions(BaseModel):
     
     chunk_overlap: Optional[int] = Field(
         default=None,
-        description="청크 간 오버랩 크기 (문자 단위). 미설정 시 chunk_size의 10%",
+        description="청크 간 오버랩 크기 (기본값: chunk_size의 10%)",
         ge=0,
         le=1000
     )
@@ -55,7 +55,7 @@ class UploadRequest(BaseModel):
     
     chunking: Optional[ChunkingOptions] = Field(
         default=None,
-        description="청킹 옵션 설정. 미설정 시 기본값 사용"
+        description="청킹 옵션 설정. 기본값: chunk_size=1000, chunk_overlap=자동(10%)"
     )
 
 
@@ -68,5 +68,5 @@ class CrawlRequest(BaseModel):
     
     chunking: Optional[ChunkingOptions] = Field(
         default=None,
-        description="청킹 옵션 설정. 미설정 시 기본값 사용"
+        description="청킹 옵션 설정. 기본값: chunk_size=1000, chunk_overlap=자동(10%)"
     )
