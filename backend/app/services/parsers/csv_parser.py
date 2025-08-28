@@ -15,14 +15,14 @@ except ImportError:
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 
 class CSVParser(BaseDocumentParser):
-    def parse(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
+    def parse(self, file_path: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> ParsedDocument:
         """CSV 파일을 파싱하여 청크로 분할"""
         
         # 1차: LangChain CSVLoader 사용 시도
         if CSVLOADER_AVAILABLE and CSVLoader is not None:
             try:
                 encoding = self._detect_encoding(file_path)
-                parsed_doc = self._parse_with_csvloader(file_path, encoding, chunk_size, **kwargs)
+                parsed_doc = self._parse_with_csvloader(file_path, encoding, chunk_size, chunk_overlap, **kwargs)
                 if parsed_doc is not None and parsed_doc.chunks:
                     print(f"✅ CSVLoader 청킹 성공: {len(parsed_doc.chunks)}개 청크 생성")
                     return parsed_doc
@@ -30,9 +30,9 @@ class CSVParser(BaseDocumentParser):
                 print(f"CSVLoader 실패: {e}, polars 폴백 시도")
         
         # 2차: 기존 polars 기반 폴백
-        return self._parse_with_polars_fallback(file_path, chunk_size, **kwargs)
+        return self._parse_with_polars_fallback(file_path, chunk_size, chunk_overlap, **kwargs)
     
-    def _parse_with_csvloader(self, file_path: str, encoding: str, chunk_size: int = 1000, **kwargs) -> Optional[ParsedDocument]:
+    def _parse_with_csvloader(self, file_path: str, encoding: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> Optional[ParsedDocument]:
         """CSVLoader를 사용한 전용 CSV 청킹"""
         
         if not CSVLOADER_AVAILABLE or CSVLoader is None:
@@ -52,7 +52,7 @@ class CSVParser(BaseDocumentParser):
         
         chunks: List[DocumentChunk] = []
         
-        # CSVLoader의 각 문서를 DocumentChunk로 변환
+        # CSVLoader의 각 문서를 DocumentChunk로 변환 (행별 자동 청킹 유지)
         for i, doc in enumerate(docs):
             if doc.page_content.strip():
                 chunk = DocumentChunk(
@@ -81,7 +81,7 @@ class CSVParser(BaseDocumentParser):
             file_type="csv"
         )
     
-    def _parse_with_polars_fallback(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
+    def _parse_with_polars_fallback(self, file_path: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> ParsedDocument:
         """기존 polars 기반 폴백 처리"""
         
         # 1. 인코딩 감지 (한국어 지원)
@@ -98,6 +98,7 @@ class CSVParser(BaseDocumentParser):
             text_content, 
             chunk_size, 
             file_path,
+            chunk_overlap=chunk_overlap,
             separators=[
                 "\n\n",  # 문단 구분
                 "\n",    # 줄 구분

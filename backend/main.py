@@ -106,6 +106,14 @@ async def startup_event():
     """애플리케이션 시작 시 실행"""
     logging.info("🚀 RAG System API 시작")
     
+    # 데이터 영속성 확인
+    from app.api.documents import documents_db
+    from app.services.task_manager import task_manager
+    
+    logging.info(f"📚 저장된 데이터 로드 완료:")
+    logging.info(f"  - 문서: {len(documents_db)}개")
+    logging.info(f"  - 작업: {len(task_manager.tasks)}개")
+    
     # 백그라운드 워커 시작
     from app.services.background_worker import start_background_worker
     await start_background_worker()
@@ -120,6 +128,25 @@ async def shutdown_event():
     from app.services.background_worker import stop_background_worker
     stop_background_worker()
     logging.info("✅ 백그라운드 워커 정지 완료")
+    
+    # 데이터 최종 저장 확인
+    from app.api.documents import documents_db
+    from app.services.task_manager import task_manager
+    from app.services.persistence import save_documents, save_tasks
+    
+    try:
+        save_documents(documents_db)
+        save_tasks(task_manager.tasks)
+        logging.info("💾 데이터 최종 저장 완료:")
+        logging.info(f"  - 문서: {len(documents_db)}개")
+        logging.info(f"  - 작업: {len(task_manager.tasks)}개")
+    except Exception as e:
+        logging.error(f"⚠️ 데이터 저장 오류: {str(e)}")
+    
+    # 오래된 작업 정리 (선택적)
+    cleaned = task_manager.cleanup_old_tasks(hours=72)  # 3일 이상 오래된 작업
+    if cleaned > 0:
+        logging.info(f"🗑️ 오래된 작업 {cleaned}개 정리")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8099)

@@ -6,9 +6,13 @@ from datetime import datetime
 
 from ..services.task_manager import task_manager, TaskType, TaskStatus
 from ..services.document_processor import DocumentProcessor
+from ..utils.chunking import prepare_chunking_kwargs, format_chunking_summary, validate_chunking_options
 from pydantic import BaseModel, Field, field_validator
 from urllib.parse import urlparse
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 # === 응답 모델들 ===
 
@@ -126,17 +130,30 @@ async def upload_document_async(
             content = await file.read()
             buffer.write(content)
         
+        # 청킹 옵션 준비 및 검증
+        try:
+            chunking_kwargs = prepare_chunking_kwargs(chunk_size, chunk_overlap)
+            chunking_summary = format_chunking_summary(chunk_size, chunk_overlap)
+            logger.info(f"📄 비동기 파일 업로드 시작: {file.filename} ({chunking_summary})")
+        except ValueError as e:
+            # 저장된 파일 삭제
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+            raise HTTPException(status_code=400, detail=f"청킹 옵션 오류: {str(e)}")
+        
         # 비동기 작업 생성
+        task_metadata = {
+            "filename": file.filename,
+            "file_path": file_path,
+            "file_size": len(content),
+            "file_type": file_info["extension"],
+            **chunking_kwargs,  # 검증된 청킹 옵션
+            "chunking_summary": chunking_summary
+        }
+        
         task_id = task_manager.create_task(
             task_type=TaskType.FILE_UPLOAD,
-            metadata={
-                "filename": file.filename,
-                "file_path": file_path,
-                "file_size": len(content),
-                "file_type": file_info["extension"],
-                "chunk_size": chunk_size,
-                "chunk_overlap": chunk_overlap
-            }
+            metadata=task_metadata
         )
         
         # 예상 처리 시간 계산 (파일 크기 기반)
@@ -186,16 +203,26 @@ async def crawl_url_async(request: UrlCrawlRequest):
     """비동기 웹 크롤링"""
     
     try:
+        # 청킹 옵션 준비 및 검증
+        try:
+            chunking_kwargs = prepare_chunking_kwargs(request.chunk_size, request.chunk_overlap)
+            chunking_summary = format_chunking_summary(request.chunk_size, request.chunk_overlap)
+            logger.info(f"🌐 비동기 웹 크롤링 시작: {request.url} ({chunking_summary})")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"청킹 옵션 오류: {str(e)}")
+        
         # 비동기 작업 생성
+        task_metadata = {
+            "url": request.url,
+            "max_depth": request.max_depth,
+            "same_domain": request.same_domain,
+            **chunking_kwargs,  # 검증된 청킹 옵션
+            "chunking_summary": chunking_summary
+        }
+        
         task_id = task_manager.create_task(
             task_type=TaskType.WEB_CRAWL,
-            metadata={
-                "url": request.url,
-                "max_depth": request.max_depth,
-                "same_domain": request.same_domain,
-                "chunk_size": request.chunk_size,
-                "chunk_overlap": request.chunk_overlap
-            }
+            metadata=task_metadata
         )
         
         # 예상 처리 시간 계산 (깊이 기반)

@@ -1,12 +1,13 @@
-from typing import List
+from typing import List, Optional, cast, Any
 from pptx import Presentation
+from pptx.shapes.base import BaseShape
 
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 
 class PPTXParser(BaseDocumentParser):
     """PPTX 파서 - python-pptx + LangChain 청킹"""
     
-    def parse(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
+    def parse(self, file_path: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> ParsedDocument:
         """PPTX 파일을 파싱하여 청크로 분할"""
         
         prs = Presentation(file_path)
@@ -22,12 +23,13 @@ class PPTXParser(BaseDocumentParser):
             slide_text_parts.append(f"\n\nSlide {slide_idx + 1}:")
             
             for shape in slide.shapes:
-                if hasattr(shape, "text_frame") and shape.text_frame:
-                    text = shape.text_frame.text.strip()
+                shape_any = cast(Any, shape)  # Pylance 타입 체킹 우회
+                if hasattr(shape_any, "text_frame") and shape_any.text_frame:
+                    text = shape_any.text_frame.text.strip()
                     if text:
                         slide_text_parts.append(text)
-                elif hasattr(shape, "text"):
-                    text = shape.text.strip()
+                elif hasattr(shape_any, "text"):
+                    text = shape_any.text.strip()
                     if text:
                         slide_text_parts.append(text)
             
@@ -49,6 +51,7 @@ class PPTXParser(BaseDocumentParser):
             full_text,
             chunk_size,
             file_path,
+            chunk_overlap=chunk_overlap,
             separators=[
                 "\n\nSlide ",   # 슬라이드 구분
                 "\n\n",        # 문단 구분

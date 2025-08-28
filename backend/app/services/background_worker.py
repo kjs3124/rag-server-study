@@ -7,6 +7,11 @@ from datetime import datetime
 from .task_manager import task_manager, TaskType, TaskStatus
 from .document_processor import DocumentProcessor
 from ..api.websocket import task_notifier
+from ..utils.chunking import prepare_chunking_kwargs, format_chunking_summary
+from ..utils.memory import auto_cleanup
+import logging
+
+logger = logging.getLogger(__name__)
 
 class BackgroundWorker:
     """백그라운드 작업 처리기"""
@@ -18,7 +23,7 @@ class BackgroundWorker:
     async def start(self):
         """워커 시작"""
         self.running = True
-        print("🚀 백그라운드 워커 시작")
+        logger.info("🚀 백그라운드 워커 시작")
         
         while self.running:
             try:
@@ -27,39 +32,41 @@ class BackgroundWorker:
                 if task_id:
                     await self.process_task(task_id)
                 else:
-                    # 작업이 없으면 잠시 대기
+                    # 작업이 없으면 잠시 대기 후 메모리 정리 확인
                     await asyncio.sleep(1)
+                    # 30분마다 자동 메모리 정리
+                    auto_cleanup()
                     
             except Exception as e:
-                print(f"워커 에러: {e}")
+                logger.error(f"워커 에러: {e}")
                 await asyncio.sleep(5)
                 
     def stop(self):
         """워커 정지"""
         self.running = False
-        print("⏹️ 백그라운드 워커 정지")
+        logger.info("⏹️ 백그라운드 워커 정지")
         
     async def process_task(self, task_id: str):
         """작업 처리"""
         try:
             task = task_manager.get_task(task_id)
             if not task:
-                print(f"작업을 찾을 수 없음: {task_id}")
+                logger.warning(f"작업을 찾을 수 없음: {task_id}")
                 return
                 
             if task.metadata is None:
                 raise ValueError(f"작업에 메타데이터가 없습니다: {task_id}")
                 
-            # 청킹 파라미터 정보 추출
+            # 청킹 파라미터 정보 추출 (유틸리티 사용)
             chunk_size = task.metadata.get("chunk_size", 1000)
             chunk_overlap = task.metadata.get("chunk_overlap")
-            chunk_info = f"청크크기:{chunk_size}"
-            if chunk_overlap is not None:
-                chunk_info += f", 오버랩:{chunk_overlap}"
-            else:
-                chunk_info += f", 오버랩:자동({int(chunk_size * 0.1)})"
             
-            print(f"📋 작업 처리 시작: {task_id} ({task.task_type}) - {chunk_info}")
+            # 기존 chunking_summary가 있으면 사용, 없으면 생성
+            chunk_info = task.metadata.get("chunking_summary")
+            if not chunk_info:
+                chunk_info = format_chunking_summary(chunk_size, chunk_overlap)
+            
+            logger.info(f"📋 작업 처리 시작: {task_id} ({task.task_type}) - {chunk_info}")
             
             # 작업 시작 알림
             await task_notifier.notify_started(task_id)
@@ -76,8 +83,8 @@ class BackgroundWorker:
                 
         except Exception as e:
             error_msg = f"작업 처리 실패: {str(e)}"
-            print(f"❌ {error_msg}")
-            print(traceback.format_exc())
+            logger.error(f"❌ {error_msg}")
+            logger.error(traceback.format_exc())
             await task_notifier.notify_failed(task_id, error_msg)
             
     async def _process_file_upload(self, task_id: str, metadata: Dict[str, Any]):
@@ -93,12 +100,14 @@ class BackgroundWorker:
         # 진행상황 업데이트: 파싱 시작
         await task_notifier.notify_progress(task_id, 20, "파일 파싱을 시작합니다")
         
-        # 청킹 옵션 준비
-        chunking_kwargs = {
-            'chunk_size': chunk_size,
-        }
-        if chunk_overlap is not None:
-            chunking_kwargs['chunk_overlap'] = chunk_overlap
+        # 청킹 옵션 준비 (유틸리티 사용)
+        try:
+            chunking_kwargs = prepare_chunking_kwargs(chunk_size, chunk_overlap)
+        except ValueError as e:
+            error_msg = f"청킹 옵션 오류: {str(e)}"
+            logger.error(f"❌ {error_msg}")
+            await task_notifier.notify_failed(task_id, error_msg)
+            return
         
         # 문서 처리 (동기 함수를 비동기로 실행)
         loop = asyncio.get_event_loop()
@@ -120,17 +129,18 @@ class BackgroundWorker:
         }
         
         # documents_db에 저장 (동기 API와 동일하게)
-        from ..api.documents import documents_db
-        documents_db[task_id] = {
-            "id": task_id,
-            "filename": filename,
-            "file_size": metadata.get("file_size", 0),
-            "chunks_count": len(parsed_doc.chunks),
-            "upload_time": datetime.now().isoformat(),
-            "status": "completed",
-            "file_path": file_path,
-            "parsed_doc": parsed_doc
-        }
+        from ..api.documents import documents_db, auto_save_documents
+        with auto_save_documents(documents_db):
+            documents_db[task_id] = {
+                "id": task_id,
+                "filename": filename,
+                "file_size": metadata.get("file_size", 0),
+                "chunks_count": len(parsed_doc.chunks),
+                "upload_time": datetime.now().isoformat(),
+                "status": "completed",
+                "file_path": file_path,
+                "parsed_doc": parsed_doc
+            }
         
         # 처리된 문서 정보를 메타데이터에 저장
         task_manager.update_task(task_id, metadata={
@@ -167,16 +177,18 @@ class BackgroundWorker:
         # 진행상황 업데이트
         await task_notifier.notify_progress(task_id, 30, "페이지 내용을 분석 중입니다")
         
-        # 청킹 파라미터 처리
+        # 청킹 파라미터 처리 (유틸리티 사용)
         chunk_size = metadata.get("chunk_size", 1000)
         chunk_overlap = metadata.get("chunk_overlap")
         
         # 청킹 옵션 준비
-        chunking_kwargs = {
-            'chunk_size': chunk_size,
-        }
-        if chunk_overlap is not None:
-            chunking_kwargs['chunk_overlap'] = chunk_overlap
+        try:
+            chunking_kwargs = prepare_chunking_kwargs(chunk_size, chunk_overlap)
+        except ValueError as e:
+            error_msg = f"청킹 옵션 오류: {str(e)}"
+            logger.error(f"❌ {error_msg}")
+            await task_notifier.notify_failed(task_id, error_msg)
+            return
         
         parsed_doc = await loop.run_in_executor(
             None, 
@@ -196,17 +208,18 @@ class BackgroundWorker:
         }
         
         # documents_db에 저장 (동기 API와 동일하게)
-        from ..api.documents import documents_db
-        documents_db[task_id] = {
-            "id": task_id,
-            "filename": f"crawled_{url.replace('://', '_').replace('/', '_')[:50]}",
-            "file_size": sum(len(chunk.content) for chunk in parsed_doc.chunks),
-            "chunks_count": len(parsed_doc.chunks),
-            "upload_time": datetime.now().isoformat(),
-            "status": "completed",
-            "file_path": url,
-            "parsed_doc": parsed_doc
-        }
+        from ..api.documents import documents_db, auto_save_documents
+        with auto_save_documents(documents_db):
+            documents_db[task_id] = {
+                "id": task_id,
+                "filename": f"crawled_{url.replace('://', '_').replace('/', '_')[:50]}",
+                "file_size": sum(len(chunk.content) for chunk in parsed_doc.chunks),
+                "chunks_count": len(parsed_doc.chunks),
+                "upload_time": datetime.now().isoformat(),
+                "status": "completed",
+                "file_path": url,
+                "parsed_doc": parsed_doc
+            }
         
         # 처리된 문서 정보를 메타데이터에 저장
         task_manager.update_task(task_id, metadata={

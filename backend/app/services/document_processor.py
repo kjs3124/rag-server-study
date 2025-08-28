@@ -4,6 +4,7 @@ import logging
 from .parsers.factory import DocumentParserFactory
 from .parsers.base import ParsedDocument
 from .parsers.web_crawler import WebCrawlerParser
+from ..utils.memory import memory_manager
 
 # 로거 설정
 logger = logging.getLogger(__name__)
@@ -17,6 +18,10 @@ class DocumentProcessor:
         self.parser_factory = DocumentParserFactory()
         self.web_crawler = WebCrawlerParser()
         self.supported_extensions = self.parser_factory.get_supported_extensions()
+        
+        # 메모리 관리자에 파서 인스턴스 등록
+        memory_manager.register_parser(self.parser_factory)
+        memory_manager.register_parser(self.web_crawler)
     
     def process_file(self, file_path: str, **kwargs) -> ParsedDocument:
         """

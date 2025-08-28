@@ -1,6 +1,6 @@
 import requests
 from urllib.parse import urljoin, urlparse
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Tuple
 
 urllib3: Any = None
 try:
@@ -46,7 +46,8 @@ class WebCrawlerParser(BaseDocumentParser):
     def __init__(self, delay: float = 1.0):
         self.delay = delay  # 요청 간 지연시간
         
-    def parse(self, file_path: str, max_depth: int = 1, same_domain: bool = True, **kwargs) -> ParsedDocument:
+    def parse(self, file_path: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, 
+              max_depth: int = 1, same_domain: bool = True, **kwargs) -> ParsedDocument:
         """웹페이지를 크롤링하여 청크로 분할"""
         
         # nest-asyncio로 이벤트 루프 중첩 허용
@@ -68,7 +69,7 @@ class WebCrawlerParser(BaseDocumentParser):
                 asyncio.set_event_loop(new_loop)
                 try:
                     return new_loop.run_until_complete(
-                        self._async_parse(file_path, max_depth, same_domain, **kwargs)
+                        self._async_parse(file_path, chunk_size, chunk_overlap, max_depth, same_domain, **kwargs)
                     )
                 finally:
                     new_loop.close()
@@ -79,9 +80,9 @@ class WebCrawlerParser(BaseDocumentParser):
                 
         except RuntimeError:
             # 루프가 없으면 새로 생성
-            return asyncio.run(self._async_parse(file_path, max_depth, same_domain, **kwargs))
+            return asyncio.run(self._async_parse(file_path, chunk_size, chunk_overlap, max_depth, same_domain, **kwargs))
     
-    async def _async_parse(self, file_path: str, max_depth: int = 1, same_domain: bool = True, **kwargs) -> ParsedDocument:
+    async def _async_parse(self, file_path: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, max_depth: int = 1, same_domain: bool = True, **kwargs) -> ParsedDocument:
         """실제 비동기 파싱 로직"""
         
         if not BS4_AVAILABLE:
@@ -101,7 +102,7 @@ class WebCrawlerParser(BaseDocumentParser):
                 continue
                 
             try:
-                chunks, links = await self._crawl_single_page(current_url)
+                chunks, links = await self._crawl_single_page(current_url, chunk_size, chunk_overlap, **kwargs)
                 all_chunks.extend(chunks)
                 visited_urls.add(current_url)
                 
@@ -135,11 +136,11 @@ class WebCrawlerParser(BaseDocumentParser):
             file_type="web"
         )
     
-    async def _crawl_single_page(self, url: str) -> tuple[List[DocumentChunk], List[str]]:
+    async def _crawl_single_page(self, url: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> Tuple[List[DocumentChunk], List[str]]:
         """단일 웹페이지 크롤링"""
-        return await self._crawl_with_trafilatura(url)
+        return await self._crawl_with_trafilatura(url, chunk_size, chunk_overlap, **kwargs)
     
-    async def _crawl_with_trafilatura(self, url: str) -> tuple[List[DocumentChunk], List[str]]:
+    async def _crawl_with_trafilatura(self, url: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> Tuple[List[DocumentChunk], List[str]]:
         """trafilatura를 사용한 고품질 텍스트 추출"""
         
         headers = {
@@ -175,17 +176,12 @@ class WebCrawlerParser(BaseDocumentParser):
                                 if href and isinstance(href, str) and href.strip():
                                     links.append(href)
                         
-                        chunks = self._create_chunks_from_text(clean_text, url, **kwargs)
+                        chunks = self._create_chunks_from_text(clean_text, url, chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
                         return chunks, links
             except Exception as e:
                 print(f"trafilatura 실패: {e}, requests 폴백 시도")
         
-        # 폴백: requests + BeautifulSoup
-        return self._crawl_with_requests_fallback(url, headers)
-    
-    def _crawl_with_requests_fallback(self, url: str, headers: dict) -> tuple[List[DocumentChunk], List[str]]:
-        """requests + BeautifulSoup 폴백 방식"""
-        
+        # 폴백: requests + BeautifulSoup (동기 메서드를 비동기에서 호출하므로 직접 구현)
         response = requests.get(url, headers=headers, timeout=10, verify=False)
         response.raise_for_status()
         
@@ -209,7 +205,7 @@ class WebCrawlerParser(BaseDocumentParser):
             if href and isinstance(href, str) and href.strip():
                 links.append(href)
         
-        chunks = self._create_chunks_from_text(clean_text, url, **kwargs)
+        chunks = self._create_chunks_from_text(clean_text, url, chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
         return chunks, links
     
     # Playwright 메소드 제거됨
@@ -229,7 +225,9 @@ class WebCrawlerParser(BaseDocumentParser):
             chunk_size=chunk_size,
             file_path=source_url,  # URL을 file_path로 사용
             chunk_overlap=chunk_overlap,
-            **base_metadata
+            source_url=source_url,
+            source_type="web",
+            parser="web_crawler"
         )
         
         # 청크 ID를 웹 크롤러용으로 수정
@@ -238,7 +236,7 @@ class WebCrawlerParser(BaseDocumentParser):
         
         return chunks
     
-    def _create_html_header_chunks(self, html_content: str, source_url: str) -> tuple[List[DocumentChunk], List[str]]:
+    def _create_html_header_chunks(self, html_content: str, source_url: str) -> Tuple[List[DocumentChunk], List[str]]:
         """HTML 헤더를 이용한 구조적 청킹"""
         
         if not HTML_SPLITTER_AVAILABLE or HTMLHeaderTextSplitter is None:

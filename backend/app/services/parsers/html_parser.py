@@ -23,7 +23,7 @@ except ImportError:
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 
 class HTMLParser(BaseDocumentParser):
-    def parse(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
+    def parse(self, file_path: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> ParsedDocument:
         """HTML 파일을 파싱하여 청크로 분할"""
         
         # 1. HTML 파일 읽기
@@ -51,7 +51,7 @@ class HTMLParser(BaseDocumentParser):
                 print(f"HTML 헤더 청킹 실패: {e}, trafilatura 폴백 시도")
         
         # 3. 2차: trafilatura + markdownify 폴백 (기존 방식)
-        return self._parse_with_trafilatura_fallback(html_content, file_path, chunk_size, **kwargs)
+        return self._parse_with_trafilatura_fallback(html_content, file_path, chunk_size, chunk_overlap, **kwargs)
     
     def _parse_with_html_header_splitter(self, html_content: str, file_path: str, chunk_size: int) -> List[DocumentChunk]:
         """HTMLHeaderTextSplitter를 사용한 구조적 청킹"""
@@ -93,7 +93,7 @@ class HTMLParser(BaseDocumentParser):
         
         return chunks
     
-    def _parse_with_trafilatura_fallback(self, html_content: str, file_path: str, chunk_size: int, **kwargs) -> ParsedDocument:
+    def _parse_with_trafilatura_fallback(self, html_content: str, file_path: str, chunk_size: int, chunk_overlap: Optional[int] = None, **kwargs) -> ParsedDocument:
         """기존 trafilatura + markdownify 방식 폴백"""
         
         # trafilatura로 고품질 텍스트 추출
@@ -108,6 +108,7 @@ class HTMLParser(BaseDocumentParser):
             primary_content,
             chunk_size,
             file_path,
+            chunk_overlap=chunk_overlap,
             separators=[
                 "\n\n",    # 문단 구분
                 "\n# ",    # Markdown 헤딩

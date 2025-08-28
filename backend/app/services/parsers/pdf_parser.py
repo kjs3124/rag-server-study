@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class PDFParser(BaseDocumentParser):
     """PDF 문서 파서 - PyMuPDF + pdfplumber"""
     
-    def parse(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
+    def parse(self, file_path: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> ParsedDocument:
         """PDF 파일을 파싱하여 청크로 분할
         
         개선된 아키텍처:
@@ -34,9 +34,9 @@ class PDFParser(BaseDocumentParser):
         extract_tables = kwargs.get('extract_tables', True)
         
         logger.info(f"Using PyMuPDF + pdfplumber for PDF parsing: {file_path}")
-        return self._parse_with_pymupdf(file_path, chunk_size, extract_tables, **kwargs)
+        return self._parse_with_pymupdf(file_path, chunk_size, chunk_overlap, extract_tables, **kwargs)
     
-    def _parse_with_pymupdf(self, file_path: str, chunk_size: int, extract_tables: bool, **kwargs) -> ParsedDocument:
+    def _parse_with_pymupdf(self, file_path: str, chunk_size: int, chunk_overlap: Optional[int] = None, extract_tables: bool = True, **kwargs) -> ParsedDocument:
         """PyMuPDF + pdfplumber를 사용한 고성능 PDF 파싱
         
         Features:
@@ -103,6 +103,7 @@ class PDFParser(BaseDocumentParser):
             full_text,
             chunk_size,
             file_path,
+            chunk_overlap=chunk_overlap,
             separators=[
                 "\n\n",  # 문단 구분
                 "\n",    # 줄 구분

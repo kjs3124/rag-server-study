@@ -7,7 +7,7 @@ from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 class TXTParser(BaseDocumentParser):
     """텍스트 파일 파서 - chardet + LangChain 청킹"""
     
-    def parse(self, file_path: str, chunk_size: int = 1000, encoding: Optional[str] = None, **kwargs) -> ParsedDocument:
+    def parse(self, file_path: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, encoding: Optional[str] = None, **kwargs) -> ParsedDocument:
         """텍스트 파일을 파싱하여 청크로 분할"""
         
         # 인코딩 감지
@@ -21,6 +21,7 @@ class TXTParser(BaseDocumentParser):
             content,
             chunk_size,
             file_path,
+            chunk_overlap=chunk_overlap,
             separators=[
                 "\n\n\n",  # 섹션 구분
                 "\n\n",    # 문단 구분

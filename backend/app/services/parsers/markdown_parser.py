@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import re
 import markdown
 
@@ -7,7 +7,7 @@ from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 class MarkdownParser(BaseDocumentParser):
     """Markdown 파서 - markdown + LangChain 청킹"""
     
-    def parse(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
+    def parse(self, file_path: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> ParsedDocument:
         """Markdown 파일을 파싱하여 청크로 분할"""
         
         with open(file_path, 'r', encoding='utf-8') as file:
@@ -22,6 +22,7 @@ class MarkdownParser(BaseDocumentParser):
             content,
             chunk_size,
             file_path,
+            chunk_overlap=chunk_overlap,
             separators=[
                 "\n# ",       # H1 헤딩
                 "\n## ",      # H2 헤딩

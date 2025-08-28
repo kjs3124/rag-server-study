@@ -7,6 +7,10 @@ import asyncio
 from dataclasses import dataclass, asdict
 from collections import deque
 import threading
+import logging
+from .persistence import load_tasks, save_tasks
+
+logger = logging.getLogger(__name__)
 
 class TaskStatus(str, Enum):
     """작업 상태"""
@@ -40,11 +44,27 @@ class TaskInfo:
     metadata: Optional[Dict[str, Any]] = None
 
 class TaskManager:
-    """비동기 작업 관리자 (메모리 기반)"""
+    """비동기 작업 관리자 (파일 기반 영속성 지원)"""
     
     def __init__(self):
-        self.tasks: Dict[str, TaskInfo] = {}
-        self.task_queue: deque = deque()
+        # 기존 작업 정보 로드
+        try:
+            loaded_tasks = load_tasks()
+            # TaskInfo 객체로 재구성 (pickle이 dataclass를 처리)
+            self.tasks: Dict[str, TaskInfo] = loaded_tasks
+            
+            # 대기 중인 작업만 큐에 다시 추가
+            self.task_queue: deque = deque()
+            for task_id, task in self.tasks.items():
+                if task.status == TaskStatus.PENDING:
+                    self.task_queue.append(task_id)
+            
+            logger.info(f"📋 기존 작업 데이터 로드 완료: {len(self.tasks)}개 작업, {len(self.task_queue)}개 대기 중")
+        except Exception as e:
+            logger.warning(f"작업 데이터 로드 실패, 새로 시작: {e}")
+            self.tasks: Dict[str, TaskInfo] = {}
+            self.task_queue: deque = deque()
+            
         self.lock = threading.Lock()
         
     def create_task(self, task_type: TaskType, metadata: Optional[Dict] = None) -> str:
@@ -65,6 +85,9 @@ class TaskManager:
             
             # 작업 큐에 추가
             self.task_queue.append(task_id)
+            
+            # 파일로 영속화
+            save_tasks(self.tasks)
         
         return task_id
     
@@ -90,6 +113,9 @@ class TaskManager:
                     task.started_at = datetime.now()
                 elif updates['status'] in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
                     task.completed_at = datetime.now()
+            
+            # 파일로 영속화
+            save_tasks(self.tasks)
         
         return True
     
@@ -133,6 +159,9 @@ class TaskManager:
             # 큐에서 제거 (대기 중인 경우)
             if task_id in self.task_queue:
                 self.task_queue.remove(task_id)
+            
+            # 파일로 영속화
+            save_tasks(self.tasks)
                 
         return True
     
@@ -150,6 +179,11 @@ class TaskManager:
                         
             for task_id in to_remove:
                 del self.tasks[task_id]
+            
+            # 삭제 후 파일로 영속화
+            if to_remove:
+                save_tasks(self.tasks)
+                logger.info(f"🗑️ 오래된 작업 {len(to_remove)}개 정리 완료")
                 
             return len(to_remove)
 

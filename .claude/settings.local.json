@@ -19,7 +19,8 @@
       "Read(/C:\\mnt\\c\\Git\\StudyV2\\Create-RAG/**)",
       "Bash(curl:*)",
       "Bash(playwright install:*)",
-      "WebSearch"
+      "WebSearch",
+      "mcp__wonderwhy-er-desktop-commander__read_multiple_files"
     ],
     "deny": [],
     "ask": [],

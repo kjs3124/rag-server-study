@@ -7,17 +7,27 @@ from datetime import datetime
 from ..services.document_processor import DocumentProcessor
 from ..services.parsers.base import ParsedDocument
 from ..models.chunking_options import ChunkingOptions, UploadRequest, CrawlRequest
+from ..services.persistence import load_documents, save_documents, auto_save_documents
+from ..utils.memory import cleanup_document_memory, get_memory_usage, auto_cleanup
 from typing import cast
+import logging
 
 from pydantic import BaseModel, Field, field_validator
 from urllib.parse import urlparse
 import re
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 processor = DocumentProcessor()
 
-# 메모리에 문서 정보 저장 (테스트용)
-documents_db = {}
+# 파일에서 문서 정보 로드 (서버 재시작 시에도 유지)
+try:
+    documents_db = load_documents()
+    logger.info(f"📚 기존 문서 데이터 로드 완료: {len(documents_db)}개")
+except Exception as e:
+    logger.warning(f"문서 데이터 로드 실패, 새로 시작: {e}")
+    documents_db = {}
 
 # === 응답 모델들 ===
 
@@ -102,27 +112,28 @@ async def upload_document(
             content = await file.read()
             buffer.write(content)
         
-        # 청킹 옵션 준비
-        chunking_kwargs = {
-            'chunk_size': chunk_size,
-        }
-        if chunk_overlap is not None:
-            chunking_kwargs['chunk_overlap'] = chunk_overlap
+            # 청킹 옵션 준비 (유틸리티 사용)
+        chunking_kwargs = prepare_chunking_kwargs(chunk_size, chunk_overlap)
+        
+        # 로깅용 요약 정보
+        chunking_summary = format_chunking_summary(chunk_size, chunk_overlap)
+        logger.info(f"📝 문서 업로드 시작: {file.filename} ({chunking_summary})")
             
         # 파서로 문서 처리
         parsed_doc = processor.process_file(file_path, **chunking_kwargs)
         
-        # 메모리 DB에 저장
-        documents_db[document_id] = {
-            "id": document_id,
-            "filename": file.filename,
-            "file_size": len(content),
-            "chunks_count": len(parsed_doc.chunks),
-            "upload_time": datetime.now().isoformat(),
-            "status": "completed",
-            "file_path": file_path,
-            "parsed_doc": parsed_doc
-        }
+        # DB에 저장 및 파일로 영속화
+        with auto_save_documents(documents_db):
+            documents_db[document_id] = {
+                "id": document_id,
+                "filename": file.filename,
+                "file_size": len(content),
+                "chunks_count": len(parsed_doc.chunks),
+                "upload_time": datetime.now().isoformat(),
+                "status": "completed",
+                "file_path": file_path,
+                "parsed_doc": parsed_doc
+            }
         
         return UploadResponse(
             success=True,
@@ -211,20 +222,17 @@ class UrlCrawlRequest(BaseModel):
 async def crawl_url(request: UrlCrawlRequest):
     """URL 크롤링 및 파싱 테스트"""
     
-    # 요청 파라미터 로깅
-    print(f"=== 크롤링 요청 파라미터 ===")
-    print(f"URL: {request.url}")
-    print(f"max_depth: {request.max_depth}")
-    print(f"same_domain: {request.same_domain}")
-    print("=" * 30)
+    # 요청 파라미터 로깅 (개선된 형식)
+    chunking_summary = format_chunking_summary(request.chunk_size, request.chunk_overlap)
+    logger.info(f"🌐 크롤링 요청: {request.url} (depth: {request.max_depth}, same_domain: {request.same_domain}, {chunking_summary})")
     
     try:
-        # 청킹 옵션 준비
-        chunking_kwargs = {
-            'chunk_size': request.chunk_size or 1000,
-        }
-        if request.chunk_overlap is not None:
-            chunking_kwargs['chunk_overlap'] = request.chunk_overlap
+        # 청킹 옵션 준비 (유틸리티 사용)
+        chunking_kwargs = prepare_chunking_kwargs(request.chunk_size, request.chunk_overlap)
+        
+        # 로깅용 요약 정보
+        chunking_summary = format_chunking_summary(request.chunk_size, request.chunk_overlap)
+        logger.info(f"🌐 웹 크롤링 시작: {request.url} ({chunking_summary})")
             
         # URL 크롤링 (실패하면 여기서 예외 발생)
         parsed_doc = processor.process_url(
@@ -242,14 +250,10 @@ async def crawl_url(request: UrlCrawlRequest):
         # HTTPException은 그대로 다시 발생
         raise
     except Exception as e:
-        # 상세한 오류 로깅
+        # 상세한 오류 로깅 (개선된 형식)
         import traceback
         error_detail = f"URL 크롤링 실패: {str(e)}"
-        print(f"=== 크롤링 오류 상세 ===")
-        print(f"URL: {request.url}")
-        print(f"오류: {error_detail}")
-        print(f"스택 트레이스: {traceback.format_exc()}")
-        print("=" * 50)
+        logger.error(f"❌ 크롤링 오류: {request.url}\n오류: {error_detail}\n스택 트레이스: {traceback.format_exc()}")
         
         # 다른 예외는 500 에러로 변환
         raise HTTPException(status_code=500, detail=error_detail)
@@ -257,17 +261,18 @@ async def crawl_url(request: UrlCrawlRequest):
     # 성공한 경우만 여기 도달
     document_id = str(uuid.uuid4())
     
-    # 메모리 DB에 저장
-    documents_db[document_id] = {
-        "id": document_id,
-        "filename": f"crawled_{request.url.replace('://', '_').replace('/', '_')[:50]}",
-        "file_size": sum(len(chunk.content) for chunk in parsed_doc.chunks),
-        "chunks_count": len(parsed_doc.chunks),
-        "upload_time": datetime.now().isoformat(),
-        "status": "completed",
-        "file_path": request.url,
-        "parsed_doc": parsed_doc
-    }
+    # DB에 저장 및 파일로 영속화
+    with auto_save_documents(documents_db):
+        documents_db[document_id] = {
+            "id": document_id,
+            "filename": f"crawled_{request.url.replace('://', '_').replace('/', '_')[:50]}",
+            "file_size": sum(len(chunk.content) for chunk in parsed_doc.chunks),
+            "chunks_count": len(parsed_doc.chunks),
+            "upload_time": datetime.now().isoformat(),
+            "status": "completed",
+            "file_path": request.url,
+            "parsed_doc": parsed_doc
+        }
     
     return UploadResponse(
         success=True,
@@ -363,18 +368,17 @@ async def get_document(document_id: str):
 async def delete_document(document_id: str):
     """문서 삭제"""
     
-    # 디버깅용 로그 
-    print("=" * 50)
-    print("🚨 DELETE 엔드포인트 호출됨!")
-    print(f"🔍 삭제 요청된 문서 ID: {document_id}")
-    print(f"📋 현재 저장된 문서 IDs: {list(documents_db.keys())}")
-    print(f"📊 총 문서 개수: {len(documents_db)}")
-    print("=" * 50)
+    # 디버깅용 로그 (개선된 형식)
+    logger.info(f"🗑️ 문서 삭제 요청: {document_id} (현재 {len(documents_db)}개 문서 저장됨)")
     
     if document_id not in documents_db:
         raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다")
     
     doc_data = documents_db[document_id]
+    
+    # 메모리에서 파싱된 데이터 정리
+    cleanup_success = cleanup_document_memory(doc_data)
+    logger.debug(f"메모리 정리 {'성공' if cleanup_success else '실패'}: {document_id}")
     
     # 파일 삭제 (URL 크롤링이 아닌 경우)
     file_path = doc_data["file_path"]
@@ -384,10 +388,35 @@ async def delete_document(document_id: str):
         except:
             pass  # 파일 삭제 실패해도 DB에서는 제거
     
-    # 메모리 DB에서 제거
-    del documents_db[document_id]
+    # DB에서 제거 및 파일로 영속화
+    with auto_save_documents(documents_db):
+        del documents_db[document_id]
     
+    # 자동 메모리 정리 (필요시)
+    auto_cleanup(documents_db)
+    
+    logger.info(f"✅ 문서 삭제 완료: {document_id} (남은 문서: {len(documents_db)}개)")
     return {"success": True, "message": "문서가 삭제되었습니다"}
+
+@router.get("/memory/status",
+    summary="🧠 메모리 상태 조회",
+    description="현재 시스템의 메모리 사용량과 상태를 조회합니다.")
+async def get_memory_status():
+    """메모리 상태 조회"""
+    from ..utils.memory import memory_manager
+    
+    status = memory_manager.get_memory_status()
+    status["total_documents"] = len(documents_db)
+    
+    return status
+
+@router.post("/memory/cleanup",
+    summary="🧹 수동 메모리 정리",
+    description="수동으로 메모리 정리를 실행합니다.")
+async def manual_memory_cleanup():
+    """수동 메모리 정리"""
+    cleanup_results = auto_cleanup(documents_db)
+    return {"success": True, "results": cleanup_results}
 
 class QueryRequest(BaseModel):
     """질의응답 요청 모델"""

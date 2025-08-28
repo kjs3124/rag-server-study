@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 import logging
 from docx import Document
 
@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 class DOCXParser(BaseDocumentParser):
     """DOCX 문서 파서 - python-docx + LangChain 청킹"""
     
-    def parse(self, file_path: str, chunk_size: int = 1000, **kwargs) -> ParsedDocument:
+    def parse(self, file_path: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> ParsedDocument:
         """DOCX 파일을 파싱하여 청크로 분할"""
         
         logger.info(f"Using python-docx + LangChain for DOCX parsing: {file_path}")
-        return self._parse_with_python_docx(file_path, chunk_size, **kwargs)
+        return self._parse_with_python_docx(file_path, chunk_size, chunk_overlap, **kwargs)
     
     
-    def _parse_with_python_docx(self, file_path: str, chunk_size: int, **kwargs) -> ParsedDocument:
+    def _parse_with_python_docx(self, file_path: str, chunk_size: int, chunk_overlap: Optional[int] = None, **kwargs) -> ParsedDocument:
         """python-docx + LangChain을 사용한 최적화된 DOCX 파싱"""
         
         doc = Document(file_path)
@@ -74,6 +74,7 @@ class DOCXParser(BaseDocumentParser):
             full_text,
             chunk_size,
             file_path,
+            chunk_overlap=chunk_overlap,
             separators=[
                 "\n\n# ",    # 헤딩 구분
                 "\n\n",      # 문단 구분
