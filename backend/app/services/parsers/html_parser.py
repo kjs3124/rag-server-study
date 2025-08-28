@@ -1,10 +1,13 @@
 from typing import List, Any, Optional
 import trafilatura
+
+markdownify: Any = None
+MARKDOWNIFY_AVAILABLE = False
 try:
-    import markdownify
+    import markdownify as _markdownify  # type: ignore
+    markdownify = _markdownify
     MARKDOWNIFY_AVAILABLE = True
 except ImportError:
-    markdownify = None
     MARKDOWNIFY_AVAILABLE = False
 
 # LangChain HTML splitter

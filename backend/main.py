@@ -12,6 +12,8 @@ logging.basicConfig(
 
 # Import routers
 from app.api.documents import router as documents_router
+from app.api.async_documents import router as async_documents_router
+from app.api.websocket import router as websocket_router
 
 app = FastAPI(
     title="RAG System API",
@@ -59,7 +61,15 @@ tags_metadata = [
     },
     {
         "name": "documents", 
-        "description": "📚 문서 관리 - 업로드, 파싱, 크롤링, 질의응답"
+        "description": "📚 동기 문서 관리 - 업로드, 파싱, 크롤링 (기존 방식)"
+    },
+    {
+        "name": "비동기 문서 처리",
+        "description": "⚡ 비동기 문서 처리 - 백그라운드 작업, 실시간 상태 업데이트"
+    },
+    {
+        "name": "WebSocket",
+        "description": "🔄 실시간 통신 - 작업 상태 실시간 업데이트"
     }
 ]
 
@@ -87,6 +97,29 @@ async def api_health_check():
 
 # Router registration
 app.include_router(documents_router, prefix="/api/v1/documents", tags=["documents"])
+app.include_router(async_documents_router, prefix="/api/v1/documents", tags=["비동기 문서 처리"])
+app.include_router(websocket_router, prefix="/api/v1", tags=["WebSocket"])
+
+# Application startup and shutdown events
+@app.on_event("startup")
+async def startup_event():
+    """애플리케이션 시작 시 실행"""
+    logging.info("🚀 RAG System API 시작")
+    
+    # 백그라운드 워커 시작
+    from app.services.background_worker import start_background_worker
+    await start_background_worker()
+    logging.info("✅ 백그라운드 워커 시작 완료")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """애플리케이션 종료 시 실행"""
+    logging.info("⏹️ RAG System API 종료")
+    
+    # 백그라운드 워커 정지
+    from app.services.background_worker import stop_background_worker
+    stop_background_worker()
+    logging.info("✅ 백그라운드 워커 정지 완료")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8099)

@@ -1,11 +1,14 @@
 import requests
 from urllib.parse import urljoin, urlparse
 from typing import List, Optional, Any
+
+urllib3: Any = None
 try:
-    import urllib3
+    import urllib3 as _urllib3  # type: ignore
+    urllib3 = _urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 except ImportError:
-    urllib3 = None
+    pass
 import asyncio
 
 try:
@@ -48,7 +51,7 @@ class WebCrawlerParser(BaseDocumentParser):
         
         # nest-asyncio로 이벤트 루프 중첩 허용
         try:
-            import nest_asyncio
+            import nest_asyncio  # type: ignore
             nest_asyncio.apply()
         except ImportError:
             pass  # nest_asyncio가 없으면 무시

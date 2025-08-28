@@ -1,7 +1,18 @@
 from typing import List, Dict, Any, Optional, cast
 import logging
-import fitz  # PyMuPDF
-import pdfplumber
+
+fitz: Any = None
+pdfplumber: Any = None
+try:
+    import fitz as _fitz  # type: ignore  # PyMuPDF
+    fitz = _fitz
+except ImportError:
+    pass
+try:
+    import pdfplumber as _pdfplumber  # type: ignore
+    pdfplumber = _pdfplumber
+except ImportError:
+    pass
 
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
 
