@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <defs>
+    <style>
+      .actor { fill: #e6f7ff; stroke: #1890ff; stroke-width: 2; }
+      .component { fill: #f6ffed; stroke: #52c41a; stroke-width: 2; }
+      .text { font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; fill: #2d3748; }
+      .title { font-family: 'Segoe UI', Arial, sans-serif; font-size: 20px; font-weight: bold; fill: #2d3748; }
+      .label { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; fill: #4a5568; }
+      .lifeline { stroke: #718096; stroke-width: 1; stroke-dasharray: 5,5; fill: none; }
+      .arrow { stroke: #4a5568; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .async-arrow { stroke: #9f7aea; stroke-width: 2; fill: none; marker-end: url(#async-arrowhead); }
+      .ws-arrow { stroke: #00b5ad; stroke-width: 2; fill: none; stroke-dasharray: 3,3; marker-end: url(#ws-arrowhead); }
+      .note { fill: #fef3c7; stroke: #f59e0b; stroke-width: 1; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#4a5568"/>
+    </marker>
+    <marker id="async-arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#9f7aea"/>
+    </marker>
+    <marker id="ws-arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#00b5ad"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="1400" height="900" fill="#ffffff"/>
+  
+  <!-- Title -->
+  <text x="700" y="30" class="title" text-anchor="middle">Async File Upload Request Flow</text>
+  
+  <!-- Actors/Components -->
+  <rect x="50" y="60" width="140" height="50" class="actor" rx="5"/>
+  <text x="120" y="90" class="text" text-anchor="middle">Frontend</text>
+  
+  <rect x="350" y="60" width="140" height="50" class="component" rx="5"/>
+  <text x="420" y="90" class="text" text-anchor="middle">Backend API</text>
+  
+  <rect x="650" y="60" width="140" height="50" class="component" rx="5"/>
+  <text x="720" y="90" class="text" text-anchor="middle">Task Manager</text>
+  
+  <rect x="950" y="60" width="140" height="50" class="component" rx="5"/>
+  <text x="1020" y="90" class="text" text-anchor="middle">Background Worker</text>
+  
+  <rect x="1200" y="60" width="140" height="50" class="component" rx="5"/>
+  <text x="1270" y="90" class="text" text-anchor="middle">WebSocket</text>
+  
+  <!-- Lifelines -->
+  <path d="M 120 110 L 120 850" class="lifeline"/>
+  <path d="M 420 110 L 420 850" class="lifeline"/>
+  <path d="M 720 110 L 720 850" class="lifeline"/>
+  <path d="M 1020 110 L 1020 850" class="lifeline"/>
+  <path d="M 1270 110 L 1270 850" class="lifeline"/>
+  
+  <!-- Step 1: Upload Request -->
+  <path d="M 120 150 L 420 150" class="arrow"/>
+  <text x="270" y="145" class="label" text-anchor="middle">POST /async/upload</text>
+  <text x="270" y="165" class="label" text-anchor="middle">(multipart/form-data)</text>
+  
+  <!-- Step 2: Save File -->
+  <rect x="410" y="180" width="20" height="40" fill="#52c41a" opacity="0.3"/>
+  <text x="450" y="200" class="label">1. Save file</text>
+  <text x="450" y="215" class="label">/data/uuid_file.ext</text>
+  
+  <!-- Step 3: Create Task -->
+  <path d="M 420 240 L 720 240" class="arrow"/>
+  <text x="570" y="235" class="label" text-anchor="middle">2. create_task()</text>
+  <text x="570" y="255" class="label" text-anchor="middle">metadata: {filename, path}</text>
+  
+  <!-- Task Manager Processing -->
+  <rect x="710" y="270" width="20" height="60" fill="#52c41a" opacity="0.3"/>
+  <text x="750" y="290" class="label">Generate task_id</text>
+  <text x="750" y="305" class="label">Add to queue</text>
+  <text x="750" y="320" class="label">Status: PENDING</text>
+  
+  <!-- Return task_id -->
+  <path d="M 720 340 L 420 340" class="arrow" stroke-dasharray="5,5"/>
+  <text x="570" y="335" class="label" text-anchor="middle">task_id</text>
+  
+  <!-- Response to Frontend -->
+  <path d="M 420 360 L 120 360" class="arrow" stroke-dasharray="5,5"/>
+  <text x="270" y="355" class="label" text-anchor="middle">Response: {task_id}</text>
+  <text x="270" y="375" class="label" text-anchor="middle">"작업이 시작됩니다"</text>
+  
+  <!-- Step 4: Background Worker Polling -->
+  <path d="M 1020 420 L 720 420" class="async-arrow"/>
+  <text x="870" y="415" class="label" text-anchor="middle">3. get_pending_task()</text>
+  
+  <path d="M 720 440 L 1020 440" class="async-arrow" stroke-dasharray="5,5"/>
+  <text x="870" y="435" class="label" text-anchor="middle">return task_id</text>
+  
+  <!-- Step 5: Processing -->
+  <rect x="1010" y="460" width="20" height="120" fill="#9f7aea" opacity="0.3"/>
+  <text x="1050" y="480" class="label">4. 파일 파싱 시작</text>
+  <text x="1050" y="495" class="label">DocumentProcessor</text>
+  <text x="1050" y="510" class="label">→ Parser Factory</text>
+  <text x="1050" y="525" class="label">→ Chunking</text>
+  
+  <!-- Step 6: WebSocket Connection -->
+  <path d="M 120 400 L 1270 400" class="ws-arrow"/>
+  <text x="695" y="395" class="label" text-anchor="middle">WS: Connect /ws/{client_id}</text>
+  
+  <path d="M 120 430 L 1270 430" class="ws-arrow"/>
+  <text x="695" y="425" class="label" text-anchor="middle">Subscribe to task_id</text>
+  
+  <!-- Progress Updates -->
+  <path d="M 1020 550 L 720 550" class="async-arrow"/>
+  <text x="870" y="545" class="label" text-anchor="middle">5. notify_progress(20%)</text>
+  
+  <path d="M 720 570 L 1270 570" class="ws-arrow"/>
+  <text x="995" y="565" class="label" text-anchor="middle">broadcast update</text>
+  
+  <path d="M 1270 590 L 120 590" class="ws-arrow" stroke-dasharray="3,3"/>
+  <text x="695" y="585" class="label" text-anchor="middle">WS: {progress: 20%, "파일 파싱 중"}</text>
+  
+  <!-- More Progress -->
+  <path d="M 1020 630 L 720 630" class="async-arrow"/>
+  <text x="870" y="625" class="label" text-anchor="middle">notify_progress(80%)</text>
+  
+  <path d="M 720 650 L 1270 650" class="ws-arrow"/>
+  <path d="M 1270 670 L 120 670" class="ws-arrow" stroke-dasharray="3,3"/>
+  <text x="695" y="665" class="label" text-anchor="middle">WS: {progress: 80%, "파싱 완료"}</text>
+  
+  <!-- Completion -->
+  <path d="M 1020 720 L 720 720" class="async-arrow"/>
+  <text x="870" y="715" class="label" text-anchor="middle">6. notify_completed()</text>
+  <text x="870" y="735" class="label" text-anchor="middle">result: {chunks_count, ...}</text>
+  
+  <rect x="710" y="750" width="20" height="40" fill="#52c41a" opacity="0.3"/>
+  <text x="750" y="770" class="label">Status: COMPLETED</text>
+  
+  <path d="M 720 800 L 1270 800" class="ws-arrow"/>
+  <path d="M 1270 820 L 120 820" class="ws-arrow" stroke-dasharray="3,3"/>
+  <text x="695" y="815" class="label" text-anchor="middle">WS: {status: "completed", result: {...}}</text>
+  
+  <!-- Notes -->
+  <rect x="50" y="200" width="250" height="60" class="note" rx="3"/>
+  <text x="175" y="220" class="label" text-anchor="middle" font-weight="bold">💡 즉시 응답</text>
+  <text x="175" y="235" class="label" text-anchor="middle">프론트엔드는 task_id를 받고</text>
+  <text x="175" y="250" class="label" text-anchor="middle">즉시 다른 작업 가능</text>
+  
+  <rect x="1100" y="350" width="250" height="60" class="note" rx="3"/>
+  <text x="1225" y="370" class="label" text-anchor="middle" font-weight="bold">🔄 백그라운드 처리</text>
+  <text x="1225" y="385" class="label" text-anchor="middle">워커가 비동기로 작업 처리</text>
+  <text x="1225" y="400" class="label" text-anchor="middle">메인 스레드 블로킹 없음</text>
+</svg>

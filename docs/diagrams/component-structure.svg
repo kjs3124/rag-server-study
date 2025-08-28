@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700" viewBox="0 0 1000 700">
+  <defs>
+    <style>
+      .folder { fill: #fef3c7; stroke: #f59e0b; stroke-width: 2; }
+      .file-py { fill: #e0f2fe; stroke: #0284c7; stroke-width: 1; }
+      .file-special { fill: #dcfce7; stroke: #16a34a; stroke-width: 1; }
+      .text { font-family: 'Courier New', monospace; font-size: 13px; fill: #2d3748; }
+      .title { font-family: 'Segoe UI', Arial, sans-serif; font-size: 18px; font-weight: bold; fill: #2d3748; }
+      .comment { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; fill: #6b7280; font-style: italic; }
+      .line { stroke: #cbd5e1; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="1000" height="700" fill="#ffffff"/>
+  
+  <!-- Title -->
+  <text x="500" y="30" class="title" text-anchor="middle">Backend Directory Structure</text>
+  
+  <!-- Root backend/ -->
+  <rect x="50" y="60" width="100" height="30" class="folder" rx="3"/>
+  <text x="100" y="80" class="text" text-anchor="middle">backend/</text>
+  
+  <!-- main.py -->
+  <rect x="80" y="110" width="80" height="25" class="file-special" rx="3"/>
+  <text x="120" y="127" class="text" text-anchor="middle">main.py</text>
+  <text x="250" y="127" class="comment">← FastAPI 앱 진입점</text>
+  
+  <!-- app/ folder -->
+  <rect x="80" y="150" width="80" height="25" class="folder" rx="3"/>
+  <text x="120" y="167" class="text" text-anchor="middle">app/</text>
+  
+  <!-- api/ subfolder -->
+  <rect x="120" y="190" width="80" height="25" class="folder" rx="3"/>
+  <text x="160" y="207" class="text" text-anchor="middle">api/</text>
+  <text x="300" y="207" class="comment">← API 엔드포인트</text>
+  
+  <!-- API files -->
+  <rect x="160" y="230" width="120" height="20" class="file-py" rx="2"/>
+  <text x="220" y="244" class="text" text-anchor="middle">documents.py</text>
+  <text x="380" y="244" class="comment">← 동기 API (레거시)</text>
+  
+  <rect x="160" y="260" width="150" height="20" class="file-special" rx="2"/>
+  <text x="235" y="274" class="text" text-anchor="middle">async_documents.py</text>
+  <text x="380" y="274" class="comment">← 비동기 API ⭐</text>
+  
+  <rect x="160" y="290" width="120" height="20" class="file-special" rx="2"/>
+  <text x="220" y="304" class="text" text-anchor="middle">websocket.py</text>
+  <text x="380" y="304" class="comment">← WebSocket 핸들러</text>
+  
+  <!-- services/ subfolder -->
+  <rect x="120" y="330" width="80" height="25" class="folder" rx="3"/>
+  <text x="160" y="347" class="text" text-anchor="middle">services/</text>
+  <text x="300" y="347" class="comment">← 비즈니스 로직</text>
+  
+  <!-- Service files -->
+  <rect x="160" y="370" width="130" height="20" class="file-special" rx="2"/>
+  <text x="225" y="384" class="text" text-anchor="middle">task_manager.py</text>
+  <text x="380" y="384" class="comment">← 작업 큐 관리 (메모리 기반)</text>
+  
+  <rect x="160" y="400" width="160" height="20" class="file-special" rx="2"/>
+  <text x="240" y="414" class="text" text-anchor="middle">background_worker.py</text>
+  <text x="380" y="414" class="comment">← 백그라운드 처리</text>
+  
+  <rect x="160" y="430" width="170" height="20" class="file-py" rx="2"/>
+  <text x="245" y="444" class="text" text-anchor="middle">document_processor.py</text>
+  <text x="380" y="444" class="comment">← 문서 처리 팩토리</text>
+  
+  <!-- parsers/ subfolder -->
+  <rect x="160" y="470" width="80" height="25" class="folder" rx="3"/>
+  <text x="200" y="487" class="text" text-anchor="middle">parsers/</text>
+  <text x="320" y="487" class="comment">← 파서 구현체들</text>
+  
+  <!-- Parser files grid -->
+  <rect x="200" y="510" width="70" height="18" class="file-py" rx="2"/>
+  <text x="235" y="523" class="text" text-anchor="middle" font-size="11">base.py</text>
+  
+  <rect x="280" y="510" width="90" height="18" class="file-py" rx="2"/>
+  <text x="325" y="523" class="text" text-anchor="middle" font-size="11">pdf_parser.py</text>
+  
+  <rect x="380" y="510" width="100" height="18" class="file-py" rx="2"/>
+  <text x="430" y="523" class="text" text-anchor="middle" font-size="11">excel_parser.py</text>
+  
+  <rect x="200" y="535" width="100" height="18" class="file-py" rx="2"/>
+  <text x="250" y="548" class="text" text-anchor="middle" font-size="11">docx_parser.py</text>
+  
+  <rect x="310" y="535" width="90" height="18" class="file-py" rx="2"/>
+  <text x="355" y="548" class="text" text-anchor="middle" font-size="11">ppt_parser.py</text>
+  
+  <rect x="410" y="535" width="110" height="18" class="file-special" rx="2"/>
+  <text x="465" y="548" class="text" text-anchor="middle" font-size="11">web_crawler.py</text>
+  
+  <rect x="200" y="560" width="90" height="18" class="file-py" rx="2"/>
+  <text x="245" y="573" class="text" text-anchor="middle" font-size="11">html_parser.py</text>
+  
+  <rect x="300" y="560" width="80" height="18" class="file-py" rx="2"/>
+  <text x="340" y="573" class="text" text-anchor="middle" font-size="11">md_parser.py</text>
+  
+  <rect x="390" y="560" width="90" height="18" class="file-special" rx="2"/>
+  <text x="435" y="573" class="text" text-anchor="middle" font-size="11">csv_parser.py</text>
+  
+  <text x="530" y="540" class="comment">... (12개 파서)</text>
+  
+  <!-- data/ folder -->
+  <rect x="80" y="610" width="80" height="25" class="folder" rx="3"/>
+  <text x="120" y="627" class="text" text-anchor="middle">data/</text>
+  <text x="250" y="627" class="comment">← 업로드 파일 저장</text>
+  
+  <!-- Legend -->
+  <rect x="650" y="100" width="300" height="200" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1" rx="5"/>
+  <text x="800" y="125" class="text" text-anchor="middle" font-weight="bold">주요 컴포넌트 설명</text>
+  
+  <rect x="670" y="145" width="15" height="15" class="file-special" rx="2"/>
+  <text x="695" y="157" class="text" font-size="12">⭐ 핵심 비동기 컴포넌트</text>
+  
+  <rect x="670" y="170" width="15" height="15" class="file-py" rx="2"/>
+  <text x="695" y="182" class="text" font-size="12">일반 Python 모듈</text>
+  
+  <rect x="670" y="195" width="15" height="15" class="folder" rx="2"/>
+  <text x="695" y="207" class="text" font-size="12">디렉토리</text>
+  
+  <text x="670" y="240" class="comment">• Task Manager: 메모리 기반 작업 관리</text>
+  <text x="670" y="255" class="comment">• Background Worker: 비동기 작업 처리</text>
+  <text x="670" y="270" class="comment">• WebSocket: 실시간 상태 업데이트</text>
+  
+  <!-- Connection lines -->
+  <path d="M 100 90 L 100 110" class="line"/>
+  <path d="M 100 135 L 100 150" class="line"/>
+  <path d="M 100 175 L 120 190" class="line"/>
+  <path d="M 100 175 L 120 330" class="line"/>
+  <path d="M 100 175 L 100 610" class="line"/>
+  
+  <path d="M 140 215 L 160 230" class="line"/>
+  <path d="M 140 215 L 160 260" class="line"/>
+  <path d="M 140 215 L 160 290" class="line"/>
+  
+  <path d="M 140 355 L 160 370" class="line"/>
+  <path d="M 140 355 L 160 400" class="line"/>
+  <path d="M 140 355 L 160 430" class="line"/>
+  <path d="M 140 355 L 160 470" class="line"/>
+  
+  <path d="M 180 495 L 200 510" class="line"/>
+  <path d="M 180 495 L 200 535" class="line"/>
+  <path d="M 180 495 L 200 560" class="line"/>
+</svg>

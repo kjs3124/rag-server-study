@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+  <defs>
+    <style>
+      .box { fill: #f0f4f8; stroke: #2d3748; stroke-width: 2; }
+      .highlight-box { fill: #e6fffa; stroke: #00b5ad; stroke-width: 2; }
+      .header { fill: #2d3748; }
+      .text { font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; fill: #2d3748; }
+      .title { font-family: 'Segoe UI', Arial, sans-serif; font-size: 18px; font-weight: bold; fill: #2d3748; }
+      .subtitle { font-family: 'Segoe UI', Arial, sans-serif; font-size: 16px; font-weight: bold; fill: #00b5ad; }
+      .arrow { stroke: #4a5568; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .ws-arrow { stroke: #00b5ad; stroke-width: 2; fill: none; stroke-dasharray: 5,5; marker-end: url(#ws-arrowhead); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#4a5568"/>
+    </marker>
+    <marker id="ws-arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#00b5ad"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="1200" height="800" fill="#ffffff"/>
+  
+  <!-- Title -->
+  <text x="600" y="30" class="title" text-anchor="middle">RAG System Backend Architecture</text>
+  
+  <!-- Frontend Layer -->
+  <rect x="50" y="60" width="1100" height="80" class="box" rx="5"/>
+  <text x="600" y="90" class="subtitle" text-anchor="middle">Frontend Layer</text>
+  <text x="600" y="115" class="text" text-anchor="middle">🌐 Browser / Mobile App / API Client</text>
+  
+  <!-- Arrows from Frontend -->
+  <path d="M 400 140 L 400 180" class="arrow"/>
+  <text x="320" y="165" class="text">HTTP Request</text>
+  
+  <path d="M 800 140 L 800 180" class="ws-arrow"/>
+  <text x="850" y="165" class="text">WebSocket</text>
+  
+  <!-- FastAPI Application Layer -->
+  <rect x="50" y="180" width="1100" height="200" class="highlight-box" rx="5"/>
+  <text x="600" y="210" class="subtitle" text-anchor="middle">FastAPI Application (Port 8099)</text>
+  
+  <!-- Middleware Box -->
+  <rect x="100" y="240" width="200" height="100" class="box" rx="5"/>
+  <text x="200" y="265" class="text" text-anchor="middle" font-weight="bold">Middleware</text>
+  <text x="200" y="290" class="text" text-anchor="middle">• CORS</text>
+  <text x="200" y="310" class="text" text-anchor="middle">• Auth (TBD)</text>
+  <text x="200" y="330" class="text" text-anchor="middle">• Logging</text>
+  
+  <!-- API Routers Box -->
+  <rect x="350" y="240" width="250" height="100" class="box" rx="5"/>
+  <text x="475" y="265" class="text" text-anchor="middle" font-weight="bold">API Routers</text>
+  <text x="475" y="290" class="text" text-anchor="middle">• /api/v1/documents</text>
+  <text x="475" y="310" class="text" text-anchor="middle">• /api/v1/documents/async/*</text>
+  <text x="475" y="330" class="text" text-anchor="middle">• /health</text>
+  
+  <!-- WebSocket Handler Box -->
+  <rect x="650" y="240" width="250" height="100" class="box" rx="5"/>
+  <text x="775" y="265" class="text" text-anchor="middle" font-weight="bold">WebSocket Handler</text>
+  <text x="775" y="290" class="text" text-anchor="middle">• /api/v1/ws/{client_id}</text>
+  <text x="775" y="310" class="text" text-anchor="middle">• Real-time updates</text>
+  <text x="775" y="330" class="text" text-anchor="middle">• Task subscriptions</text>
+  
+  <!-- Core Services Layer -->
+  <text x="600" y="420" class="subtitle" text-anchor="middle">Core Services Layer</text>
+  
+  <!-- Task Manager -->
+  <rect x="100" y="440" width="220" height="120" class="box" rx="5"/>
+  <text x="210" y="465" class="text" text-anchor="middle" font-weight="bold">Task Manager</text>
+  <text x="210" y="485" class="text" text-anchor="middle" font-size="12">• tasks: Dict</text>
+  <text x="210" y="505" class="text" text-anchor="middle" font-size="12">• task_queue: deque</text>
+  <text x="210" y="525" class="text" text-anchor="middle" font-size="12">• thread lock</text>
+  <text x="210" y="545" class="text" text-anchor="middle" font-size="12">• CRUD operations</text>
+  
+  <!-- Background Worker -->
+  <rect x="370" y="440" width="220" height="120" class="box" rx="5"/>
+  <text x="480" y="465" class="text" text-anchor="middle" font-weight="bold">Background Worker</text>
+  <text x="480" y="485" class="text" text-anchor="middle" font-size="12">• Polling loop</text>
+  <text x="480" y="505" class="text" text-anchor="middle" font-size="12">• Process tasks</text>
+  <text x="480" y="525" class="text" text-anchor="middle" font-size="12">• Update progress</text>
+  <text x="480" y="545" class="text" text-anchor="middle" font-size="12">• Error handling</text>
+  
+  <!-- Document Processor -->
+  <rect x="640" y="440" width="220" height="120" class="box" rx="5"/>
+  <text x="750" y="465" class="text" text-anchor="middle" font-weight="bold">Document Processor</text>
+  <text x="750" y="485" class="text" text-anchor="middle" font-size="12">• Parser Factory</text>
+  <text x="750" y="505" class="text" text-anchor="middle" font-size="12">• 12 Parser Types</text>
+  <text x="750" y="525" class="text" text-anchor="middle" font-size="12">• Chunking logic</text>
+  <text x="750" y="545" class="text" text-anchor="middle" font-size="12">• LangChain integration</text>
+  
+  <!-- WebSocket Manager -->
+  <rect x="910" y="440" width="220" height="120" class="box" rx="5"/>
+  <text x="1020" y="465" class="text" text-anchor="middle" font-weight="bold">WebSocket Manager</text>
+  <text x="1020" y="485" class="text" text-anchor="middle" font-size="12">• Client connections</text>
+  <text x="1020" y="505" class="text" text-anchor="middle" font-size="12">• Task subscriptions</text>
+  <text x="1020" y="525" class="text" text-anchor="middle" font-size="12">• Real-time notify</text>
+  <text x="1020" y="545" class="text" text-anchor="middle" font-size="12">• Broadcast updates</text>
+  
+  <!-- Arrows between components -->
+  <path d="M 320 500 L 370 500" class="arrow"/>
+  <path d="M 590 500 L 640 500" class="arrow"/>
+  <path d="M 480 560 L 750 560 L 750 560" class="arrow"/>
+  <path d="M 210 560 L 210 600 L 1020 600 L 1020 560" class="ws-arrow"/>
+  
+  <!-- Parser Layer -->
+  <rect x="100" y="650" width="1000" height="100" class="box" rx="5"/>
+  <text x="600" y="680" class="subtitle" text-anchor="middle">Parser Family (12 Types)</text>
+  
+  <text x="200" y="710" class="text" text-anchor="middle">PDF</text>
+  <text x="300" y="710" class="text" text-anchor="middle">DOCX</text>
+  <text x="400" y="710" class="text" text-anchor="middle">Excel</text>
+  <text x="500" y="710" class="text" text-anchor="middle">PPT</text>
+  <text x="600" y="710" class="text" text-anchor="middle">HTML</text>
+  <text x="700" y="710" class="text" text-anchor="middle">MD</text>
+  
+  <text x="200" y="730" class="text" text-anchor="middle">TXT</text>
+  <text x="300" y="730" class="text" text-anchor="middle">CSV</text>
+  <text x="400" y="730" class="text" text-anchor="middle">Code</text>
+  <text x="500" y="730" class="text" text-anchor="middle">JSON</text>
+  <text x="600" y="730" class="text" text-anchor="middle">XML</text>
+  <text x="700" y="730" class="text" text-anchor="middle">Web</text>
+  
+  <!-- Connection from Document Processor to Parsers -->
+  <path d="M 750 560 L 750 650" class="arrow"/>
+</svg>
