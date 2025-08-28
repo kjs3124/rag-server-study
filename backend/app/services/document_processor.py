@@ -5,6 +5,7 @@ from .parsers.factory import DocumentParserFactory
 from .parsers.base import ParsedDocument
 from .parsers.web_crawler import WebCrawlerParser
 from ..utils.memory import memory_manager
+from ..utils.error_logger import error_logger, ErrorLevel
 
 # 로거 설정
 logger = logging.getLogger(__name__)
@@ -39,21 +40,49 @@ class DocumentProcessor:
             FileNotFoundError: 파일이 존재하지 않음
         """
         file_path_obj = Path(file_path)
+        parser = None
         
-        # 파일 존재 확인
-        if not file_path_obj.exists():
-            raise FileNotFoundError(f"파일을 찾을 수 없습니다: {file_path}")
-        
-        # 지원 형식 확인
-        if file_path_obj.suffix.lower() not in self.supported_extensions:
-            raise ValueError(f"지원되지 않는 파일 형식: {file_path_obj.suffix}")
-        
-        # 파서 가져오기 및 처리
-        parser = self.parser_factory.get_parser(file_path)
-        parsed_doc = parser.parse(file_path, **kwargs)
-        
-        logger.info(f"파일 처리 완료: {file_path} ({len(parsed_doc.chunks)}개 청크)")
-        return parsed_doc
+        try:
+            # 파일 존재 확인
+            if not file_path_obj.exists():
+                error_logger.log_validation_error(
+                    validation_type="file_existence",
+                    invalid_data=file_path,
+                    expected_format="existing file path",
+                    error_message=f"파일을 찾을 수 없습니다: {file_path}"
+                )
+                raise FileNotFoundError(f"파일을 찾을 수 없습니다: {file_path}")
+            
+            # 지원 형식 확인
+            if file_path_obj.suffix.lower() not in self.supported_extensions:
+                error_logger.log_validation_error(
+                    validation_type="file_extension",
+                    invalid_data=file_path_obj.suffix,
+                    expected_format=f"one of {list(self.supported_extensions)}",
+                    error_message=f"지원되지 않는 파일 형식: {file_path_obj.suffix}"
+                )
+                raise ValueError(f"지원되지 않는 파일 형식: {file_path_obj.suffix}")
+            
+            # 파서 가져오기 및 처리
+            parser = self.parser_factory.get_parser(file_path)
+            parsed_doc = parser.parse(file_path, **kwargs)
+            
+            logger.info(f"파일 처리 완료: {file_path} ({len(parsed_doc.chunks)}개 청크)")
+            return parsed_doc
+            
+        except (FileNotFoundError, ValueError):
+            # 이미 로깅된 검증 에러들은 그대로 재발생
+            raise
+        except Exception as e:
+            # 예상치 못한 에러 로깅
+            parser_name = parser.__class__.__name__ if parser is not None else "unknown"
+            error_logger.log_processing_error(
+                file_path=file_path,
+                parser_name=parser_name,
+                error=e,
+                file_size=file_path_obj.stat().st_size if file_path_obj.exists() else None
+            )
+            raise
     
     def process_url(self, url: str, max_depth: int = 1, same_domain: bool = True, **kwargs) -> ParsedDocument:
         """
@@ -68,15 +97,25 @@ class DocumentProcessor:
         Returns:
             ParsedDocument: 파싱된 웹 문서
         """
-        crawled_content = self.web_crawler.parse(
-            url, 
-            max_depth=max_depth, 
-            same_domain=same_domain,
-            **kwargs
-        )
-        
-        logger.info(f"URL 크롤링 완료: {url} ({len(crawled_content.chunks)}개 청크)")
-        return crawled_content
+        try:
+            crawled_content = self.web_crawler.parse(
+                url, 
+                max_depth=max_depth, 
+                same_domain=same_domain,
+                **kwargs
+            )
+            
+            logger.info(f"URL 크롤링 완료: {url} ({len(crawled_content.chunks)}개 청크)")
+            return crawled_content
+            
+        except Exception as e:
+            error_logger.log_processing_error(
+                file_path=url,
+                parser_name="WebCrawlerParser",
+                error=e,
+                file_size=None
+            )
+            raise
     
     
     def get_file_info(self, file_path: str) -> Dict[str, Any]:

@@ -9,6 +9,8 @@ from ..services.parsers.base import ParsedDocument
 from ..models.chunking_options import ChunkingOptions, UploadRequest, CrawlRequest
 from ..services.persistence import load_documents, save_documents, auto_save_documents
 from ..utils.memory import cleanup_document_memory, get_memory_usage, auto_cleanup
+from ..utils.error_logger import error_logger, ErrorLevel
+from ..utils.log_monitor import get_system_health
 from typing import cast
 import logging
 
@@ -145,6 +147,13 @@ async def upload_document(
         )
         
     except Exception as e:
+        error_id = error_logger.log_processing_error(
+            file_path=file.filename,
+            parser_name="unknown",
+            error=e,
+            file_size=len(content) if 'content' in locals() else None
+        )
+        
         original_error = str(e)
         
         if os.path.exists(file_path):
@@ -153,7 +162,7 @@ async def upload_document(
             except PermissionError:
                 pass
         
-        raise HTTPException(status_code=500, detail=f"파일 처리 실패: {original_error}")
+        raise HTTPException(status_code=500, detail=f"[{error_id}] 파일 처리 실패: {original_error}")
 
 class UrlCrawlRequest(BaseModel):
     """웹 크롤링 요청 모델"""
@@ -250,10 +259,15 @@ async def crawl_url(request: UrlCrawlRequest):
         # HTTPException은 그대로 다시 발생
         raise
     except Exception as e:
-        # 상세한 오류 로깅 (개선된 형식)
-        import traceback
-        error_detail = f"URL 크롤링 실패: {str(e)}"
-        logger.error(f"❌ 크롤링 오류: {request.url}\n오류: {error_detail}\n스택 트레이스: {traceback.format_exc()}")
+        error_id = error_logger.log_processing_error(
+            file_path=request.url,
+            parser_name="web_crawler",
+            error=e,
+            file_size=None
+        )
+        
+        error_detail = f"[{error_id}] URL 크롤링 실패: {str(e)}"
+        logger.error(f"[{error_id}] ❌ 크롤링 오류: {request.url}")
         
         # 다른 예외는 500 에러로 변환
         raise HTTPException(status_code=500, detail=error_detail)
@@ -494,3 +508,49 @@ async def test_query(request: QueryRequest):
             "retrieval_count": len(selected_chunks)
         }
     }
+
+@router.get("/system/health", tags=["시스템"])
+async def get_system_status():
+    """시스템 상태 및 에러 로그 요약"""
+    try:
+        health_data = get_system_health()
+        memory_info = get_memory_usage()
+        
+        return {
+            "status": "success",
+            "system_health": health_data,
+            "memory_usage": memory_info,
+            "documents_count": len(documents_db),
+            "total_chunks": sum(
+                len(doc.get("parsed_doc", {}).get("chunks", []))
+                for doc in documents_db.values()
+            )
+        }
+    except Exception as e:
+        error_id = error_logger.log_api_error(
+            endpoint="/system/health",
+            method="GET",
+            error=e
+        )
+        raise HTTPException(status_code=500, detail=f"[{error_id}] 시스템 상태 조회 실패: {str(e)}")
+
+@router.get("/system/errors", tags=["시스템"])
+async def get_recent_errors(hours: int = Query(24, ge=1, le=168, description="조회할 시간 (1-168시간)")):
+    """최근 에러 로그 조회"""
+    try:
+        from ..utils.log_monitor import log_monitor
+        error_summary = log_monitor.get_error_summary(hours=hours)
+        
+        return {
+            "status": "success",
+            "error_summary": error_summary,
+            "query_hours": hours
+        }
+    except Exception as e:
+        error_id = error_logger.log_api_error(
+            endpoint="/system/errors",
+            method="GET",
+            error=e,
+            request_data={"hours": hours}
+        )
+        raise HTTPException(status_code=500, detail=f"[{error_id}] 에러 로그 조회 실패: {str(e)}")
