@@ -5,13 +5,15 @@ RAG 시스템의 새로운 비동기 문서 처리 API 사용법을 설명합니
 ## 🔄 아키텍처 개요
 
 ### 기존 동기 방식의 문제점
+
 - **HTTP 연결 대기**: 파일 파싱 완료까지 연결 유지 (최대 몇 분)
 - **타임아웃 위험**: 큰 파일이나 웹 크롤링 시 요청 타임아웃
 - **확장성 제한**: 동시 처리 불가능, 서버 리소스 과부하
 - **사용자 경험 저하**: 진행상황을 알 수 없음
 
 ### 새로운 비동기 방식
-```
+
+```개요
 Client → API → Task Queue → Background Worker → Status Update
           ↓                                           ↑
       Task ID 즉시 반환                    WebSocket/Polling으로 실시간 상태 확인
@@ -22,6 +24,7 @@ Client → API → Task Queue → Background Worker → Status Update
 ### 1. 비동기 파일 업로드
 
 **요청**:
+
 ```bash
 curl -X POST "http://localhost:8099/api/v1/documents/async/upload" \
   -H "accept: application/json" \
@@ -30,6 +33,7 @@ curl -X POST "http://localhost:8099/api/v1/documents/async/upload" \
 ```
 
 **응답**:
+
 ```json
 {
   "success": true,
@@ -42,6 +46,7 @@ curl -X POST "http://localhost:8099/api/v1/documents/async/upload" \
 ### 2. 비동기 웹 크롤링
 
 **요청**:
+
 ```bash
 curl -X POST "http://localhost:8099/api/v1/documents/async/crawl" \
   -H "accept: application/json" \
@@ -54,6 +59,7 @@ curl -X POST "http://localhost:8099/api/v1/documents/async/crawl" \
 ```
 
 **응답**:
+
 ```json
 {
   "success": true,
@@ -66,11 +72,13 @@ curl -X POST "http://localhost:8099/api/v1/documents/async/crawl" \
 ### 3. 작업 상태 조회
 
 **요청**:
+
 ```bash
 curl "http://localhost:8099/api/v1/documents/async/tasks/550e8400-e29b-41d4-a716-446655440000"
 ```
 
 **응답**:
+
 ```json
 {
   "task_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -179,36 +187,43 @@ asyncio.run(watch_task("550e8400-e29b-41d4-a716-446655440000"))
 
 ## 🔧 API 엔드포인트 상세
 
-### 파일 업로드 
+### 파일 업로드
+
 - **POST** `/api/v1/documents/async/upload`
 - **Form Data**: `file` (파일)
 - **응답**: `TaskResponse` (task_id 포함)
 
 ### 웹 크롤링
+
 - **POST** `/api/v1/documents/async/crawl`
 - **Body**: `UrlCrawlRequest`
 - **응답**: `TaskResponse` (task_id 포함)
 
 ### 작업 상태 조회
+
 - **GET** `/api/v1/documents/async/tasks/{task_id}`
 - **응답**: `TaskStatusResponse`
 
 ### 작업 목록 조회
+
 - **GET** `/api/v1/documents/async/tasks`
 - **Query Params**: `limit`, `status`
 - **응답**: `List[TaskStatusResponse]`
 
 ### 작업 취소
+
 - **DELETE** `/api/v1/documents/async/tasks/{task_id}`
 - **응답**: 취소 결과
 
 ### 작업 결과 조회
+
 - **GET** `/api/v1/documents/async/tasks/{task_id}/result`
 - **응답**: 완료된 작업의 상세 결과 (청크 데이터 포함)
 
 ## 📊 작업 상태
 
 ### 상태 종류
+
 - `pending`: 대기 중 (작업 큐에서 대기)
 - `processing`: 처리 중 (백그라운드에서 실행 중)
 - `completed`: 완료 (성공적으로 완료됨)
@@ -216,6 +231,7 @@ asyncio.run(watch_task("550e8400-e29b-41d4-a716-446655440000"))
 - `cancelled`: 취소됨 (사용자가 취소)
 
 ### 진행률 (0-100%)
+
 - **파일 업로드**: 20% (파싱 시작) → 80% (파싱 완료) → 100% (저장 완료)
 - **웹 크롤링**: 10% (시작) → 30% (분석) → 90% (완료) → 100% (저장)
 
@@ -300,6 +316,7 @@ function DocumentUpload() {
 ## ⚙️ 설정 및 배포
 
 ### 메모리 기반 작업 관리
+
 Redis 대신 메모리 기반 작업 관리 시스템을 사용합니다:
 
 - **장점**: 별도 설치 불필요, 간단한 구성
@@ -307,6 +324,7 @@ Redis 대신 메모리 기반 작업 관리 시스템을 사용합니다:
 - **권장 사항**: 프로덕션 환경에서는 Redis 또는 데이터베이스 사용 고려
 
 ### Docker Compose 예시
+
 ```yaml
 version: '3.8'
 services:
@@ -321,11 +339,13 @@ services:
 ## 🚨 에러 처리 및 모니터링
 
 ### 에러 유형
+
 - **작업 생성 실패**: 잘못된 파라미터, 파일 오류
 - **처리 중 실패**: 파싱 에러, 네트워크 오류
 - **시스템 에러**: Redis 연결 실패, 디스크 공간 부족
 
 ### 모니터링 대상
+
 - 작업 큐 크기
 - 평균 처리 시간  
 - 실패율
