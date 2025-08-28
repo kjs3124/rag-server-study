@@ -11,6 +11,7 @@ from ..services.persistence import load_documents, save_documents, auto_save_doc
 from ..utils.memory import cleanup_document_memory, get_memory_usage, auto_cleanup
 from ..utils.error_logger import error_logger, ErrorLevel
 from ..utils.log_monitor import get_system_health
+from ..utils.chunking import prepare_chunking_kwargs, format_chunking_summary
 from typing import cast
 import logging
 
@@ -31,36 +32,45 @@ except Exception as e:
     logger.warning(f"문서 데이터 로드 실패, 새로 시작: {e}")
     documents_db = {}
 
-# === 응답 모델들 ===
+# === 통일된 응답 모델들 ===
 
-class UploadResponse(BaseModel):
-    """문서 업로드 성공 응답"""
-    success: bool = Field(True, description="업로드 성공 여부")
+from typing import Any
+
+class BaseResponse(BaseModel):
+    """모든 API 응답의 기본 구조"""
+    success: bool = Field(description="요청 성공 여부")
+    message: str = Field(default="", description="응답 메시지")
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat(), description="응답 시간")
+    data: Optional[Any] = Field(default=None, description="응답 데이터")
+    error_id: Optional[str] = Field(default=None, description="에러 추적 ID")
+
+class SuccessResponse(BaseResponse):
+    """성공 응답"""
+    success: bool = Field(default=True, description="성공 표시")
+
+class ErrorResponse(BaseResponse):
+    """에러 응답"""
+    success: bool = Field(default=False, description="실패 표시")
+    error_type: str = Field(default="error", description="에러 타입")
+
+# === 응답 데이터 모델들 ===
+
+class UploadData(BaseModel):
+    """업로드 응답 데이터"""
     document_id: str = Field(description="생성된 문서 고유 ID")
     chunks_created: int = Field(description="생성된 청크 수")
     model_used: str = Field(description="사용된 모델명")
     file_type: str = Field(description="파일 타입")
     parser_used: str = Field(description="사용된 파서명")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "success": True,
-                "document_id": "123e4567-e89b-12d3-a456-426614174000",
-                "chunks_created": 15,
-                "model_used": "parser_test",
-                "file_type": "pdf",
-                "parser_used": "pdf_pymupdf_langchain"
-            }
-        }
 
-class DocumentListResponse(BaseModel):
-    """문서 목록 응답"""
-    documents: list = Field(description="문서 목록")
-    
-class ErrorResponse(BaseModel):
-    """에러 응답"""
-    detail: str = Field(description="에러 메시지")
+class DocumentData(BaseModel):
+    """문서 정보 데이터"""
+    id: str
+    filename: str
+    file_size: int
+    chunks_count: int
+    upload_time: str
+    status: str
 
 @router.post("/upload", 
     summary="📄 동기 파일 업로드",
@@ -78,7 +88,7 @@ class ErrorResponse(BaseModel):
     • chunk_size: 청크 최대 크기 (100-8000자, 기본값: 1000)
     • chunk_overlap: 청크 간 오버랩 크기 (기본값: chunk_size의 10%)
     """,
-    response_model=UploadResponse,
+    response_model=SuccessResponse,
     responses={
         400: {"model": ErrorResponse, "description": "잘못된 요청 (지원되지 않는 파일 형식 등)"},
         500: {"model": ErrorResponse, "description": "서버 내부 오류"}
@@ -93,12 +103,17 @@ async def upload_document(
     
     # 파일 확장자 검증
     if file.filename is None:
-        raise HTTPException(status_code=400, detail="파일명이 없습니다")
+        return ErrorResponse(
+            message="유효하지 않은 파일",
+            error_type="validation_error",
+            data={"detail": "파일명이 없습니다"}
+        )
     file_info = processor.get_file_info(file.filename)
     if not file_info["is_supported"]:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"지원되지 않는 파일 형식: {file_info['extension']}"
+        return ErrorResponse(
+            message="지원되지 않는 파일 형식",
+            error_type="validation_error",
+            data={"detail": f"지원되지 않는 파일 형식: {file_info['extension']}"}
         )
     
     # 파일 저장
@@ -107,11 +122,12 @@ async def upload_document(
     os.makedirs(upload_dir, exist_ok=True)
     
     file_path = os.path.join(upload_dir, f"{document_id}_{file.filename}")
+    content = None
     
     try:
         # 파일 쓰기
+        content = await file.read()
         with open(file_path, "wb") as buffer:
-            content = await file.read()
             buffer.write(content)
         
             # 청킹 옵션 준비 (유틸리티 사용)
@@ -137,13 +153,15 @@ async def upload_document(
                 "parsed_doc": parsed_doc
             }
         
-        return UploadResponse(
-            success=True,
-            document_id=document_id,
-            chunks_created=len(parsed_doc.chunks),
-            model_used="parser_test",  # 파서 테스트용
-            file_type=parsed_doc.file_type or "unknown",
-            parser_used=parsed_doc.metadata.get("parser", "unknown")
+        return SuccessResponse(
+            message="파일 업로드 성공",
+            data=UploadData(
+                document_id=document_id,
+                chunks_created=len(parsed_doc.chunks),
+                model_used="parser_test",
+                file_type=parsed_doc.file_type or "unknown",
+                parser_used=parsed_doc.metadata.get("parser", "unknown")
+            )
         )
         
     except Exception as e:
@@ -151,7 +169,7 @@ async def upload_document(
             file_path=file.filename,
             parser_name="unknown",
             error=e,
-            file_size=len(content) if 'content' in locals() else None
+            file_size=len(content) if content is not None else 0
         )
         
         original_error = str(e)
@@ -162,7 +180,12 @@ async def upload_document(
             except PermissionError:
                 pass
         
-        raise HTTPException(status_code=500, detail=f"[{error_id}] 파일 처리 실패: {original_error}")
+        return ErrorResponse(
+            message="파일 처리 실패",
+            error_id=error_id,
+            error_type="processing_error",
+            data={"detail": original_error}
+        )
 
 class UrlCrawlRequest(BaseModel):
     """웹 크롤링 요청 모델"""
@@ -223,7 +246,7 @@ class UrlCrawlRequest(BaseModel):
     • chunk_size: 청크 최대 크기 (100-8000자, 기본값: 1000)
     • chunk_overlap: 청크 간 오버랩 크기 (기본값: chunk_size의 10%)
     """,
-    response_model=UploadResponse,
+    response_model=SuccessResponse,
     responses={
         400: {"model": ErrorResponse, "description": "잘못된 URL 또는 콘텐츠 없음"},
         500: {"model": ErrorResponse, "description": "크롤링 실패"}
@@ -253,7 +276,11 @@ async def crawl_url(request: UrlCrawlRequest):
         
         # 크롤링 성공한 경우만 문서 추가
         if not parsed_doc.chunks:
-            raise HTTPException(status_code=400, detail="크롤링된 내용이 없습니다")
+            return ErrorResponse(
+                message="크롤링된 내용이 없음",
+                error_type="validation_error",
+                data={"detail": "크롤링된 내용이 없습니다"}
+            )
             
     except HTTPException:
         # HTTPException은 그대로 다시 발생
@@ -270,7 +297,12 @@ async def crawl_url(request: UrlCrawlRequest):
         logger.error(f"[{error_id}] ❌ 크롤링 오류: {request.url}")
         
         # 다른 예외는 500 에러로 변환
-        raise HTTPException(status_code=500, detail=error_detail)
+        return ErrorResponse(
+            message="URL 크롤링 실패",
+            error_id=error_id,
+            error_type="crawling_error",
+            data={"detail": str(e)}
+        )
     
     # 성공한 경우만 여기 도달
     document_id = str(uuid.uuid4())
@@ -288,13 +320,15 @@ async def crawl_url(request: UrlCrawlRequest):
             "parsed_doc": parsed_doc
         }
     
-    return UploadResponse(
-        success=True,
-        document_id=document_id,
-        chunks_created=len(parsed_doc.chunks),
-        model_used="web_crawler",
-        file_type="web",
-        parser_used=f"web_crawler (crawled: {parsed_doc.metadata.get('crawled_urls', 1)} urls)"
+    return SuccessResponse(
+        message="웹 크롤링 성공",
+        data=UploadData(
+            document_id=document_id,
+            chunks_created=len(parsed_doc.chunks),
+            model_used="web_crawler",
+            file_type="web",
+            parser_used=f"web_crawler (crawled: {parsed_doc.metadata.get('crawled_urls', 1)} urls)"
+        )
     )
 
 @router.get("",
@@ -308,22 +342,25 @@ async def crawl_url(request: UrlCrawlRequest):
     • 업로드 시간 및 처리 상태
     • 동기/비동기 업로드 구분 없이 모든 문서 표시
     """,
-    response_model=DocumentListResponse)
+    response_model=SuccessResponse)
 async def get_documents():
     """업로드된 문서 목록 조회"""
     
     documents = []
     for doc_data in documents_db.values():
-        documents.append({
-            "id": doc_data["id"],
-            "filename": doc_data["filename"],
-            "file_size": doc_data["file_size"],
-            "chunks_count": doc_data["chunks_count"],
-            "upload_time": doc_data["upload_time"],
-            "status": doc_data["status"]
-        })
+        documents.append(DocumentData(
+            id=doc_data["id"],
+            filename=doc_data["filename"],
+            file_size=doc_data["file_size"],
+            chunks_count=doc_data["chunks_count"],
+            upload_time=doc_data["upload_time"],
+            status=doc_data["status"]
+        ))
     
-    return {"documents": documents}
+    return SuccessResponse(
+        message="문서 목록 조회 성공",
+        data={"documents": documents}
+    )
 
 @router.get("/{document_id}",
     summary="📄 문서 상세 조회",
@@ -339,7 +376,11 @@ async def get_document(document_id: str):
     """특정 문서 정보 및 청크 조회"""
     
     if document_id not in documents_db:
-        raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다")
+        return ErrorResponse(
+            message="문서를 찾을 수 없음",
+            error_type="not_found_error",
+            data={"detail": f"문서 ID '{document_id}'를 찾을 수 없습니다"}
+        )
     
     doc_data = documents_db[document_id]
     parsed_doc = cast(ParsedDocument, doc_data["parsed_doc"])
@@ -355,19 +396,22 @@ async def get_document(document_id: str):
             "section_title": chunk.section_title
         })
     
-    return {
-        "document": {
-            "id": doc_data["id"],
-            "filename": doc_data["filename"],
-            "file_size": doc_data["file_size"],
-            "chunks_count": doc_data["chunks_count"],
-            "upload_time": doc_data["upload_time"],
-            "status": doc_data["status"],
-            "file_type": parsed_doc.file_type,
-            "metadata": parsed_doc.metadata
-        },
-        "chunks": chunks
-    }
+    return SuccessResponse(
+        message="문서 상세 조회 성공",
+        data={
+            "document": {
+                "id": doc_data["id"],
+                "filename": doc_data["filename"],
+                "file_size": doc_data["file_size"],
+                "chunks_count": doc_data["chunks_count"],
+                "upload_time": doc_data["upload_time"],
+                "status": doc_data["status"],
+                "file_type": parsed_doc.file_type,
+                "metadata": parsed_doc.metadata
+            },
+            "chunks": chunks
+        }
+    )
 
 @router.delete("/{document_id}",
     summary="🗑️ 문서 삭제",
@@ -386,7 +430,11 @@ async def delete_document(document_id: str):
     logger.info(f"🗑️ 문서 삭제 요청: {document_id} (현재 {len(documents_db)}개 문서 저장됨)")
     
     if document_id not in documents_db:
-        raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다")
+        return ErrorResponse(
+            message="문서를 찾을 수 없음",
+            error_type="not_found_error",
+            data={"detail": f"문서 ID '{document_id}'를 찾을 수 없습니다"}
+        )
     
     doc_data = documents_db[document_id]
     
@@ -410,7 +458,10 @@ async def delete_document(document_id: str):
     auto_cleanup(documents_db)
     
     logger.info(f"✅ 문서 삭제 완료: {document_id} (남은 문서: {len(documents_db)}개)")
-    return {"success": True, "message": "문서가 삭제되었습니다"}
+    return SuccessResponse(
+        message="문서가 삭제되었습니다",
+        data={"deleted_document_id": document_id}
+    )
 
 @router.get("/memory/status",
     summary="🧠 메모리 상태 조회",
@@ -430,7 +481,10 @@ async def get_memory_status():
 async def manual_memory_cleanup():
     """수동 메모리 정리"""
     cleanup_results = auto_cleanup(documents_db)
-    return {"success": True, "results": cleanup_results}
+    return SuccessResponse(
+        message="메모리 정리 완료",
+        data={"cleanup_results": cleanup_results}
+    )
 
 class QueryRequest(BaseModel):
     """질의응답 요청 모델"""
@@ -468,7 +522,11 @@ async def test_query(request: QueryRequest):
     """파서 테스트용 가짜 질의응답 (실제 검색 없이 청크 반환)"""
     
     if not documents_db:
-        raise HTTPException(status_code=400, detail="업로드된 문서가 없습니다")
+        return ErrorResponse(
+            message="업로드된 문서가 없음",
+            error_type="validation_error",
+            data={"detail": "질의응답을 위한 문서가 없습니다"}
+        )
     
     # 모든 문서의 청크를 수집
     all_chunks = []
@@ -495,19 +553,19 @@ async def test_query(request: QueryRequest):
     answer = f"질문 '{request.query}'에 대한 답변입니다. (파서 테스트용 가짜 응답)\n\n"
     answer += f"총 {len(documents_db)}개 문서에서 {len(all_chunks)}개 청크를 찾았습니다."
     
-    return {
-        "success": True,
-        "data": {
+    return SuccessResponse(
+        message="질의응답 성공",
+        data={
             "answer": answer,
-            "sources": selected_chunks
-        },
-        "metadata": {
-            "query_time": "0.1s",
-            "model_used": "parser_test",
-            "language_detected": "ko",
-            "retrieval_count": len(selected_chunks)
+            "sources": selected_chunks,
+            "metadata": {
+                "query_time": "0.1s",
+                "model_used": "parser_test",
+                "language_detected": "ko",
+                "retrieval_count": len(selected_chunks)
+            }
         }
-    }
+    )
 
 @router.get("/system/health", tags=["시스템"])
 async def get_system_status():
@@ -516,23 +574,30 @@ async def get_system_status():
         health_data = get_system_health()
         memory_info = get_memory_usage()
         
-        return {
-            "status": "success",
-            "system_health": health_data,
-            "memory_usage": memory_info,
-            "documents_count": len(documents_db),
-            "total_chunks": sum(
-                len(doc.get("parsed_doc", {}).get("chunks", []))
-                for doc in documents_db.values()
-            )
-        }
+        return SuccessResponse(
+            message="시스템 상태 조회 성공",
+            data={
+                "system_health": health_data,
+                "memory_usage": memory_info,
+                "documents_count": len(documents_db),
+                "total_chunks": sum(
+                    len(doc.get("parsed_doc", {}).get("chunks", []))
+                    for doc in documents_db.values()
+                )
+            }
+        )
     except Exception as e:
         error_id = error_logger.log_api_error(
             endpoint="/system/health",
             method="GET",
             error=e
         )
-        raise HTTPException(status_code=500, detail=f"[{error_id}] 시스템 상태 조회 실패: {str(e)}")
+        return ErrorResponse(
+            message="시스템 상태 조회 실패",
+            error_id=error_id,
+            error_type="system_error",
+            data={"detail": str(e)}
+        )
 
 @router.get("/system/errors", tags=["시스템"])
 async def get_recent_errors(hours: int = Query(24, ge=1, le=168, description="조회할 시간 (1-168시간)")):
@@ -541,11 +606,13 @@ async def get_recent_errors(hours: int = Query(24, ge=1, le=168, description="�
         from ..utils.log_monitor import log_monitor
         error_summary = log_monitor.get_error_summary(hours=hours)
         
-        return {
-            "status": "success",
-            "error_summary": error_summary,
-            "query_hours": hours
-        }
+        return SuccessResponse(
+            message="에러 로그 조회 성공",
+            data={
+                "error_summary": error_summary,
+                "query_hours": hours
+            }
+        )
     except Exception as e:
         error_id = error_logger.log_api_error(
             endpoint="/system/errors",
@@ -553,4 +620,9 @@ async def get_recent_errors(hours: int = Query(24, ge=1, le=168, description="�
             error=e,
             request_data={"hours": hours}
         )
-        raise HTTPException(status_code=500, detail=f"[{error_id}] 에러 로그 조회 실패: {str(e)}")
+        return ErrorResponse(
+            message="에러 로그 조회 실패",
+            error_id=error_id,
+            error_type="system_error",
+            data={"detail": str(e)}
+        )

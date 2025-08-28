@@ -37,10 +37,16 @@ const App: React.FC = () => {
         console.error('Failed to initialize app:', error);
         setError('API 서버에 연결할 수 없습니다.');
         setHealthStatus({ 
-          status: 'unhealthy', 
-          database: false, 
-          vector_store: false, 
-          models_loaded: [] 
+          success: false,
+          message: 'API 서버 연결 실패',
+          timestamp: new Date().toISOString(),
+          error_type: 'connection_error',
+          data: {
+            system_health: { health_status: 'critical' },
+            memory_usage: {},
+            documents_count: 0,
+            total_chunks: 0
+          }
         });
       }
     };
@@ -55,10 +61,16 @@ const App: React.FC = () => {
         setError(null);
       } catch (error) {
         setHealthStatus({ 
-          status: 'unhealthy', 
-          database: false, 
-          vector_store: false, 
-          models_loaded: [] 
+          success: false,
+          message: '헬스체크 실패',
+          timestamp: new Date().toISOString(),
+          error_type: 'health_check_error',
+          data: {
+            system_health: { health_status: 'critical' },
+            memory_usage: {},
+            documents_count: 0,
+            total_chunks: 0
+          }
         });
       }
     }, 30000);
@@ -135,7 +147,7 @@ const App: React.FC = () => {
         )}
         
         {/* API 연결 상태 경고 */}
-        {healthStatus?.status === 'unhealthy' && (
+        {healthStatus && !healthStatus.success && (
           <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-md p-4">
             <p className="text-yellow-800">
               ⚠️ API 서버와의 연결에 문제가 있습니다. 일부 기능이 제한될 수 있습니다.
@@ -186,8 +198,8 @@ const App: React.FC = () => {
             <p>RAG System Test UI</p>
             <div className="flex items-center space-x-4">
               <span>Documents: {documents.length}</span>
-              {healthStatus && (
-                <span>Models: {healthStatus.models_loaded.length}</span>
+              {healthStatus && healthStatus.success && (
+                <span>Status: Connected</span>
               )}
             </div>
           </div>

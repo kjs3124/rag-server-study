@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import logging
+import asyncio
+import signal
+import sys
 
 # 로깅 설정
 logging.basicConfig(
@@ -125,8 +128,16 @@ async def shutdown_event():
     logging.info("⏹️ RAG System API 종료")
     
     # 백그라운드 워커 정지
-    from app.services.background_worker import stop_background_worker
+    from app.services.background_worker import stop_background_worker, worker_task
     stop_background_worker()
+    
+    # 워커 태스크가 완전히 종료될 때까지 대기
+    if worker_task and not worker_task.done():
+        try:
+            await asyncio.wait_for(worker_task, timeout=5.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pass
+    
     logging.info("✅ 백그라운드 워커 정지 완료")
     
     # 데이터 최종 저장 확인
@@ -147,6 +158,20 @@ async def shutdown_event():
     cleaned = task_manager.cleanup_old_tasks(hours=72)  # 3일 이상 오래된 작업
     if cleaned > 0:
         logging.info(f"🗑️ 오래된 작업 {cleaned}개 정리")
+    
+    logging.info("🏁 애플리케이션 종료 완료")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8099)
+    def signal_handler(sig, frame):
+        logging.info("🛑 강제 종료 신호 수신")
+        sys.exit(0)
+    
+    # Signal handler 등록
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=8099)
+    except KeyboardInterrupt:
+        logging.info("🛑 KeyboardInterrupt 수신, 종료")
+        sys.exit(0)

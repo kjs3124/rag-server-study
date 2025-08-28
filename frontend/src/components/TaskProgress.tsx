@@ -6,8 +6,7 @@ import {
   ClockIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
-import { TaskStatusResponse, UploadTask } from '../types';
-import websocketService from '../services/websocket';
+import { UploadTask } from '../types';
 import apiService from '../services/api';
 
 interface TaskProgressProps {
@@ -169,7 +168,7 @@ const TaskProgress: React.FC<TaskProgressProps> = ({
         
         {task.status === 'completed' && task.result && (
           <span className="text-green-600">
-            ✅ {task.result.chunks_created}개 청크 생성 완료
+            ✅ {task.result.data.chunks_created}개 청크 생성 완료
           </span>
         )}
         

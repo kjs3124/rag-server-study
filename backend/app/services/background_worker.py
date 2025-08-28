@@ -25,21 +25,31 @@ class BackgroundWorker:
         self.running = True
         logger.info("🚀 백그라운드 워커 시작")
         
-        while self.running:
-            try:
-                # 대기 중인 작업 가져오기
-                task_id = task_manager.get_pending_task()
-                if task_id:
-                    await self.process_task(task_id)
-                else:
-                    # 작업이 없으면 잠시 대기 후 메모리 정리 확인
-                    await asyncio.sleep(1)
-                    # 30분마다 자동 메모리 정리
-                    auto_cleanup()
+        try:
+            while self.running:
+                try:
+                    # 대기 중인 작업 가져오기
+                    task_id = task_manager.get_pending_task()
+                    if task_id:
+                        await self.process_task(task_id)
+                    else:
+                        # 작업이 없으면 잠시 대기 후 메모리 정리 확인
+                        await asyncio.sleep(1)
+                        # 30분마다 자동 메모리 정리
+                        auto_cleanup()
+                        
+                except asyncio.CancelledError:
+                    logger.info("📤 백그라운드 워커 취소됨")
+                    break
+                except Exception as e:
+                    if self.running:
+                        logger.error(f"워커 에러: {e}")
+                        await asyncio.sleep(5)
                     
-            except Exception as e:
-                logger.error(f"워커 에러: {e}")
-                await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            logger.info("📤 백그라운드 워커 취소됨")
+        finally:
+            logger.info("🏁 백그라운드 워커 종료")
                 
     def stop(self):
         """워커 정지"""
@@ -241,11 +251,19 @@ class BackgroundWorker:
 
 # 글로벌 워커 인스턴스
 background_worker = BackgroundWorker()
+worker_task = None
 
 async def start_background_worker():
     """백그라운드 워커 시작 (애플리케이션 시작 시 호출)"""
-    asyncio.create_task(background_worker.start())
+    global worker_task
+    worker_task = asyncio.create_task(background_worker.start())
 
 def stop_background_worker():
     """백그라운드 워커 정지 (애플리케이션 종료 시 호출)"""
+    global worker_task
     background_worker.stop()
+    
+    # 태스크 명시적 취소
+    if worker_task and not worker_task.done():
+        worker_task.cancel()
+        logger.info("✅ 백그라운드 워커 태스크 취소됨")

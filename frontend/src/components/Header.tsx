@@ -8,12 +8,12 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ healthStatus }) => {
   const getStatusColor = () => {
     if (!healthStatus) return 'bg-gray-400';
-    return healthStatus.status === 'healthy' ? 'bg-green-500' : 'bg-red-500';
+    return healthStatus.success ? 'bg-green-500' : 'bg-red-500';
   };
 
   const getStatusText = () => {
     if (!healthStatus) return 'Connecting...';
-    return healthStatus.status === 'healthy' ? 'Connected' : 'Disconnected';
+    return healthStatus.success ? 'Connected' : 'Disconnected';
   };
 
   return (
@@ -33,10 +33,10 @@ const Header: React.FC<HeaderProps> = ({ healthStatus }) => {
               <span className="text-sm text-gray-600">{getStatusText()}</span>
             </div>
             
-            {/* 로드된 모델 표시 */}
-            {healthStatus && healthStatus.models_loaded && (
+            {/* 연결 상태 표시 */}
+            {healthStatus && healthStatus.success && (
               <div className="text-sm text-gray-500">
-                Models: {healthStatus.models_loaded.length}
+                System: Online
               </div>
             )}
           </div>

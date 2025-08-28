@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { DocumentIcon, CloudArrowUpIcon, XMarkIcon, EyeIcon } from '@heroicons/react/24/outline';
+import { DocumentIcon, CloudArrowUpIcon } from '@heroicons/react/24/outline';
 import { DocumentInfo, UploadResponse, CrawlOptions, AsyncTaskResponse } from '../types';
 import apiService from '../services/api';
 import { useTaskManager } from '../hooks/useTaskManager';
@@ -34,7 +34,7 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
   const taskManager = useTaskManager({
     onTaskComplete: (taskId: string, result: UploadResponse) => {
       console.log('Task completed:', taskId, result);
-      alert(`문서가 성공적으로 업로드되었습니다. (${result.chunks_created}개 청크 생성)`);
+      alert(`문서가 성공적으로 업로드되었습니다. (${result.data.chunks_created}개 청크 생성)`);
       onUploadSuccess(result); // 부모에서 문서 목록 업데이트 필요
     },
     onTaskError: (taskId: string, error: string) => {

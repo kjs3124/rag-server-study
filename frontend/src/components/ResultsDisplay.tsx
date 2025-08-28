@@ -7,7 +7,7 @@ import {
   CpuChipIcon,
   GlobeAltIcon
 } from '@heroicons/react/24/outline';
-import { QueryResults, SourceDocument } from '../types';
+import { QueryResults } from '../types';
 
 interface ResultsDisplayProps {
   results: QueryResults | null;
@@ -89,7 +89,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results, isLoading }) =
           <h3 className="text-lg font-semibold">답변</h3>
           <div className="flex items-center space-x-2 text-sm text-gray-500">
             <ClockIcon className="h-4 w-4" />
-            <span>{formatTime(results.metadata.query_time)}</span>
+            <span>{formatTime(results.data.metadata.query_time)}</span>
           </div>
         </div>
         
@@ -207,7 +207,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results, isLoading }) =
               <ClockIcon className="h-5 w-5 text-gray-400" />
               <div>
                 <p className="text-sm text-gray-600">Response Time</p>
-                <p className="font-medium">{formatTime(results.metadata.query_time)}</p>
+                <p className="font-medium">{formatTime(results.data.metadata.query_time)}</p>
               </div>
             </div>
             
@@ -215,7 +215,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results, isLoading }) =
               <CpuChipIcon className="h-5 w-5 text-gray-400" />
               <div>
                 <p className="text-sm text-gray-600">Model Used</p>
-                <p className="font-medium">{results.metadata.model_used}</p>
+                <p className="font-medium">{results.data.metadata.model_used}</p>
               </div>
             </div>
             
@@ -223,7 +223,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results, isLoading }) =
               <GlobeAltIcon className="h-5 w-5 text-gray-400" />
               <div>
                 <p className="text-sm text-gray-600">Language</p>
-                <p className="font-medium">{results.metadata.language_detected}</p>
+                <p className="font-medium">{results.data.metadata.language_detected}</p>
               </div>
             </div>
             
@@ -231,11 +231,11 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results, isLoading }) =
               <DocumentTextIcon className="h-5 w-5 text-gray-400" />
               <div>
                 <p className="text-sm text-gray-600">Retrieved</p>
-                <p className="font-medium">{results.metadata.retrieval_count} docs</p>
+                <p className="font-medium">{results.data.metadata.retrieval_count} docs</p>
               </div>
             </div>
             
-            {results.metadata.rerank_applied && (
+            {results.data.metadata.rerank_applied && (
               <div className="md:col-span-2 lg:col-span-4">
                 <div className="bg-green-50 border border-green-200 rounded p-3">
                   <p className="text-sm text-green-800">

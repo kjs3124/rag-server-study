@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { XMarkIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
-import { UploadTask, TaskStatusResponse, UploadResponse } from '../types';
+import { ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
+import { UploadTask, UploadResponse } from '../types';
 import TaskProgress from './TaskProgress';
 import websocketService from '../services/websocket';
 
@@ -40,43 +40,22 @@ const TaskManager: React.FC<TaskManagerProps> = ({
     };
   }, []);
 
-  const addTask = useCallback((taskId: string, filename: string) => {
-    const newTask: UploadTask = {
-      task_id: taskId,
-      filename,
-      status: 'pending',
-      progress: 0,
-      message: '작업 대기 중...',
-      startTime: new Date()
-    };
-
-    setTasks(prev => new Map(prev.set(taskId, newTask)));
-
-    // WebSocket 구독
-    const handleTaskUpdate = (taskStatus: TaskStatusResponse) => {
-      setTasks(prev => {
-        const currentTask = prev.get(taskId);
-        if (!currentTask) return prev;
-
-        const updatedTask: UploadTask = {
-          ...currentTask,
-          status: taskStatus.status,
-          progress: taskStatus.progress,
-          message: taskStatus.message,
-          result: taskStatus.result,
-          error: taskStatus.error
-        };
-
-        return new Map(prev.set(taskId, updatedTask));
-      });
-    };
-
-    if (isConnected) {
-      websocketService.subscribeToTask(taskId, handleTaskUpdate);
-    }
-
-    return newTask;
-  }, [isConnected]);
+  // 현재 사용되지 않는 함수이므로 주석처리
+  // const addTask = useCallback((taskId: string, filename: string) => {
+  //   const newTask: UploadTask = {
+  //     task_id: taskId,
+  //     filename,
+  //     status: 'pending',
+  //     progress: 0,
+  //     message: '작업 대기 중...',
+  //     startTime: new Date()
+  //   };
+  //   setTasks(prev => new Map(prev.set(taskId, newTask)));
+  //   if (isConnected) {
+  //     websocketService.subscribeToTask(taskId, handleTaskUpdate);
+  //   }
+  //   return newTask;
+  // }, [isConnected]);
 
   const removeTask = useCallback((taskId: string) => {
     setTasks(prev => {

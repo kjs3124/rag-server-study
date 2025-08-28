@@ -20,7 +20,8 @@
       "Bash(curl:*)",
       "Bash(playwright install:*)",
       "WebSearch",
-      "mcp__wonderwhy-er-desktop-commander__read_multiple_files"
+      "mcp__wonderwhy-er-desktop-commander__read_multiple_files",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": [],

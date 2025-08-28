@@ -10,12 +10,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@headlessui/react": "^1.7.17",
+    "@heroicons/react": "^2.0.18",
+    "axios": "^1.6.0",
+    "node-releases": "^2.0.19",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "axios": "^1.6.0",
-    "react-dropzone": "^14.2.3",
-    "@headlessui/react": "^1.7.17",
-    "@heroicons/react": "^2.0.18"
+    "react-dropzone": "^14.2.3"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",
@@ -24,6 +25,8 @@
     "@typescript-eslint/parser": "^6.10.0",
     "@vitejs/plugin-react": "^4.1.0",
     "autoprefixer": "^10.4.16",
+    "browserslist": "^4.25.3",
+    "caniuse-lite": "^1.0.30001737",
     "eslint": "^8.53.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.4",

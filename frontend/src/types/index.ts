@@ -1,18 +1,38 @@
-// API 응답 타입들
-export interface UploadResponse {
+// 통일된 API 응답 타입들
+export interface BaseResponse {
   success: boolean;
+  message: string;
+  timestamp: string;
+  data?: any;
+  error_id?: string;
+}
+
+export interface SuccessResponse<T = any> extends BaseResponse {
+  success: true;
+  data: T;
+}
+
+export interface ErrorResponse extends BaseResponse {
+  success: false;
+  error_type: string;
+}
+
+// 업로드 응답 데이터
+export interface UploadData {
   document_id: string;
   chunks_created: number;
   model_used: string;
-  vector_ids?: string[];
+  file_type: string;
+  parser_used: string;
 }
 
-export interface QueryResults {
-  success: boolean;
-  data: {
-    answer: string;
-    sources: SourceDocument[];
-  };
+// 업로드 응답 (통일된 형식)
+export type UploadResponse = SuccessResponse<UploadData>;
+
+// 질의응답 응답 데이터
+export interface QueryData {
+  answer: string;
+  sources: SourceDocument[];
   metadata: {
     query_time: string;
     model_used: string;
@@ -21,6 +41,9 @@ export interface QueryResults {
     rerank_applied?: boolean;
   };
 }
+
+// 질의응답 응답 (통일된 형식)
+export type QueryResults = SuccessResponse<QueryData>;
 
 export interface SourceDocument {
   document_id: string;
@@ -41,12 +64,24 @@ export interface DocumentInfo {
   status: 'processing' | 'completed' | 'error';
 }
 
-export interface HealthStatus {
-  status: 'healthy' | 'unhealthy';
-  database: boolean;
-  vector_store: boolean;
-  models_loaded: string[];
+// 문서 목록 응답 데이터
+export interface DocumentListData {
+  documents: DocumentInfo[];
 }
+
+// 문서 목록 응답 (통일된 형식)
+export type DocumentListResponse = SuccessResponse<DocumentListData>;
+
+// 시스템 상태 데이터
+export interface SystemHealthData {
+  system_health: any;
+  memory_usage: any;
+  documents_count: number;
+  total_chunks: number;
+}
+
+// 시스템 상태 응답 (통일된 형식) - 성공/실패 모두 허용
+export type HealthStatus = SuccessResponse<SystemHealthData> | ErrorResponse;
 
 // UI 상태 타입들
 export interface QueryOptions {
@@ -112,7 +147,7 @@ export interface TaskStatusResponse {
 
 // WebSocket 메시지 타입들
 export interface WebSocketMessage {
-  type: 'task_update' | 'connection' | 'error';
+  type: 'task_update' | 'connection' | 'error' | 'subscribe' | 'unsubscribe';
   task_id?: string;
   status?: TaskStatusResponse['status'];
   progress?: number;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { UploadTask, AsyncTaskResponse, UploadResponse, TaskStatusResponse } from '../types';
+import { UploadTask, UploadResponse, TaskStatusResponse } from '../types';
 import websocketService from '../services/websocket';
 import apiService from '../services/api';
 

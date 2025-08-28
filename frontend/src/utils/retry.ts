@@ -26,7 +26,7 @@ export async function retry<T>(
     delay = 1000,
     backoff = 'exponential',
     maxDelay = 10000,
-    retryCondition = (error) => true,
+    retryCondition = (_error) => true,
     onRetry
   } = options;
 
@@ -155,8 +155,8 @@ export const defaultApiRetryOptions: RetryOptions = {
   backoff: 'exponential',
   maxDelay: 5000,
   retryCondition: isRetryableError,
-  onRetry: (attempt, error) => {
-    console.warn(`API call failed, retrying... (${attempt}/3)`, error.message || error);
+  onRetry: (attempt, _error) => {
+    console.warn(`API call failed, retrying... (${attempt}/3)`, _error.message || _error);
   }
 };
 
@@ -168,9 +168,9 @@ export const defaultWebSocketRetryOptions: RetryOptions = {
   delay: 1000,
   backoff: 'exponential',
   maxDelay: 10000,
-  retryCondition: (error) => true, // WebSocket 오류는 모두 재시도
-  onRetry: (attempt, error) => {
-    console.warn(`WebSocket connection failed, retrying... (${attempt}/5)`, error);
+  retryCondition: (_error) => true, // WebSocket 오류는 모두 재시도
+  onRetry: (attempt, _error) => {
+    console.warn(`WebSocket connection failed, retrying... (${attempt}/5)`, _error);
   }
 };
 
@@ -183,7 +183,7 @@ export const defaultUploadRetryOptions: RetryOptions = {
   backoff: 'linear',
   maxDelay: 5000,
   retryCondition: isNetworkError, // 네트워크 오류만 재시도
-  onRetry: (attempt, error) => {
-    console.warn(`File upload failed, retrying... (${attempt}/2)`, error);
+  onRetry: (attempt, _error) => {
+    console.warn(`File upload failed, retrying... (${attempt}/2)`, _error);
   }
 };

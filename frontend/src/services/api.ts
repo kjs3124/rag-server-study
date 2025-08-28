@@ -9,7 +9,9 @@ import {
   UploadOptions,
   CrawlRequest,
   AsyncTaskResponse,
-  TaskStatusResponse
+  TaskStatusResponse,
+  SuccessResponse,
+  DocumentListResponse
 } from '../types';
 import { retry, defaultApiRetryOptions, defaultUploadRetryOptions } from '../utils/retry';
 
@@ -74,22 +76,26 @@ class RAGApiService {
 
   // 문서 목록 조회
   async getDocuments(): Promise<DocumentInfo[]> {
-    const response: AxiosResponse<{ documents: DocumentInfo[] }> = await this.api.get(
+    const response: AxiosResponse<DocumentListResponse> = await this.api.get(
       '/documents'
     );
 
-    return response.data.documents;
+    return response.data.data.documents;
   }
 
   // 문서 상세 조회
   async getDocument(id: string): Promise<any> {
-    const response: AxiosResponse<any> = await this.api.get(`/documents/${id}`);
-    return response.data;
+    const response: AxiosResponse<SuccessResponse> = await this.api.get(`/documents/${id}`);
+    return response.data.data;
   }
 
   // 문서 삭제
   async deleteDocument(id: string): Promise<void> {
-    await this.api.delete(`/documents/${id}`);
+    const response: AxiosResponse<SuccessResponse> = await this.api.delete(`/documents/${id}`);
+    // 성공 여부 확인 (필요시 에러 처리)
+    if (!response.data.success) {
+      throw new Error(response.data.message);
+    }
   }
 
   // 질의응답
@@ -104,7 +110,7 @@ class RAGApiService {
 
   // 헬스체크
   async healthCheck(): Promise<HealthStatus> {
-    const response: AxiosResponse<HealthStatus> = await this.api.get('/health');
+    const response: AxiosResponse<HealthStatus> = await this.api.get('/documents/system/health');
     return response.data;
   }
 
