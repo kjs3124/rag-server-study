@@ -50,7 +50,16 @@ class BackgroundWorker:
             if task.metadata is None:
                 raise ValueError(f"작업에 메타데이터가 없습니다: {task_id}")
                 
-            print(f"📋 작업 처리 시작: {task_id} ({task.task_type})")
+            # 청킹 파라미터 정보 추출
+            chunk_size = task.metadata.get("chunk_size", 1000)
+            chunk_overlap = task.metadata.get("chunk_overlap")
+            chunk_info = f"청크크기:{chunk_size}"
+            if chunk_overlap is not None:
+                chunk_info += f", 오버랩:{chunk_overlap}"
+            else:
+                chunk_info += f", 오버랩:자동({int(chunk_size * 0.1)})"
+            
+            print(f"📋 작업 처리 시작: {task_id} ({task.task_type}) - {chunk_info}")
             
             # 작업 시작 알림
             await task_notifier.notify_started(task_id)
