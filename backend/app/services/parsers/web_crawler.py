@@ -150,7 +150,15 @@ class WebCrawlerParser(BaseDocumentParser):
         # trafilatura로 텍스트 추출
         if TRAFILATURA_AVAILABLE and trafilatura is not None:
             try:
-                downloaded = trafilatura.fetch_url(url)
+                # trafilatura SSL 검증 우회 설정
+                try:
+                    # trafilatura config에 SSL 검증 비활성화 설정
+                    config = trafilatura.settings.DEFAULT_CONFIG
+                    config['VERIFY_SSL'] = False
+                    downloaded = trafilatura.fetch_url(url, config=config)
+                except:
+                    # 폴백: 기본 설정으로 시도
+                    downloaded = trafilatura.fetch_url(url)
                 if downloaded:
                     # 1차: HTML 헤더 기반 구조적 청킹 시도
                     if HTML_SPLITTER_AVAILABLE and HTMLHeaderTextSplitter is not None:
