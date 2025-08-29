@@ -21,13 +21,13 @@
       "Bash(playwright install:*)",
       "WebSearch",
       "mcp__wonderwhy-er-desktop-commander__read_multiple_files",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(powershell:*)"
     ],
     "deny": [],
     "ask": [],
     "additionalDirectories": [
       "C:\\Git\\StudyV2\\Create-RAG",
-      "C:\\c\\Git\\StudyV2\\Create-RAG"
     ]
   }
 }

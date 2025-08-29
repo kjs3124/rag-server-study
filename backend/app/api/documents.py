@@ -12,6 +12,11 @@ from ..utils.memory import cleanup_document_memory, get_memory_usage, auto_clean
 from ..utils.error_logger import error_logger, ErrorLevel
 from ..utils.log_monitor import get_system_health
 from ..utils.chunking import prepare_chunking_kwargs, format_chunking_summary
+
+# 새로운 RAG 서비스 import
+from ..services.embedding import embedding_service, embed_document_chunks
+from ..services.vector_store import vector_store
+from ..services.rag_service import rag_service
 from typing import cast
 import logging
 
@@ -140,6 +145,25 @@ async def upload_document(
         # 파서로 문서 처리
         parsed_doc = processor.process_file(file_path, **chunking_kwargs)
         
+        # 임베딩 및 벡터 저장 수행
+        embeddings, embedding_metadata = await embed_document_chunks(parsed_doc.chunks)
+        
+        # 문서 메타데이터 준비
+        doc_metadata = {
+            'filename': file.filename,
+            'file_type': parsed_doc.file_type or "unknown",
+            'parser_used': parsed_doc.metadata.get("parser", "unknown"),
+            'language_info': embedding_metadata['language_analysis']
+        }
+        
+        # 벡터 스토어에 저장
+        vector_stored = await vector_store.store_document_vectors(
+            document_id=document_id,
+            embeddings=embeddings,
+            chunks=parsed_doc.chunks,
+            metadata=doc_metadata
+        )
+        
         # DB에 저장 및 파일로 영속화
         with auto_save_documents(documents_db):
             documents_db[document_id] = {
@@ -150,15 +174,17 @@ async def upload_document(
                 "upload_time": datetime.now().isoformat(),
                 "status": "completed",
                 "file_path": file_path,
-                "parsed_doc": parsed_doc
+                "parsed_doc": parsed_doc,
+                "embedding_metadata": embedding_metadata,
+                "vector_stored": vector_stored
             }
         
         return SuccessResponse(
-            message="파일 업로드 성공",
+            message="파일 업로드 및 벡터화 성공",
             data=UploadData(
                 document_id=document_id,
                 chunks_created=len(parsed_doc.chunks),
-                model_used="parser_test",
+                model_used=embedding_metadata['model_used'],
                 file_type=parsed_doc.file_type or "unknown",
                 parser_used=parsed_doc.metadata.get("parser", "unknown")
             )
@@ -307,6 +333,26 @@ async def crawl_url(request: UrlCrawlRequest):
     # 성공한 경우만 여기 도달
     document_id = str(uuid.uuid4())
     
+    # 임베딩 및 벡터 저장 수행
+    embeddings, embedding_metadata = await embed_document_chunks(parsed_doc.chunks)
+    
+    # 문서 메타데이터 준비
+    doc_metadata = {
+        'filename': f"crawled_{request.url.replace('://', '_').replace('/', '_')[:50]}",
+        'file_type': 'web',
+        'parser_used': 'web_crawler',
+        'source_url': request.url,
+        'language_info': embedding_metadata['language_analysis']
+    }
+    
+    # 벡터 스토어에 저장
+    vector_stored = await vector_store.store_document_vectors(
+        document_id=document_id,
+        embeddings=embeddings,
+        chunks=parsed_doc.chunks,
+        metadata=doc_metadata
+    )
+    
     # DB에 저장 및 파일로 영속화
     with auto_save_documents(documents_db):
         documents_db[document_id] = {
@@ -317,7 +363,9 @@ async def crawl_url(request: UrlCrawlRequest):
             "upload_time": datetime.now().isoformat(),
             "status": "completed",
             "file_path": request.url,
-            "parsed_doc": parsed_doc
+            "parsed_doc": parsed_doc,
+            "embedding_metadata": embedding_metadata,
+            "vector_stored": vector_stored
         }
     
     return SuccessResponse(
@@ -332,35 +380,102 @@ async def crawl_url(request: UrlCrawlRequest):
     )
 
 @router.get("",
-    summary="📋 문서 목록 조회",
+    summary="📋 문서 목록 조회 (Qdrant 기준)",
     description="""
-    시스템에 업로드된 모든 문서의 목록을 조회합니다.
+    Qdrant 벡터 스토어에 실제 저장된 문서들을 기준으로 목록을 조회합니다.
     
     반환 정보:
-    • 문서 ID 및 파일명
-    • 파일 크기 및 청크 개수
+    • 실제 Qdrant에 벡터가 있는 문서만 표시
+    • 문서 ID 및 파일명 (벡터 메타데이터 기준)
+    • 청크 개수 (실제 저장된 벡터 수)
     • 업로드 시간 및 처리 상태
-    • 동기/비동기 업로드 구분 없이 모든 문서 표시
     """,
     response_model=SuccessResponse)
 async def get_documents():
-    """업로드된 문서 목록 조회"""
+    """Qdrant 기준 문서 목록 조회"""
     
-    documents = []
-    for doc_data in documents_db.values():
-        documents.append(DocumentData(
-            id=doc_data["id"],
-            filename=doc_data["filename"],
-            file_size=doc_data["file_size"],
-            chunks_count=doc_data["chunks_count"],
-            upload_time=doc_data["upload_time"],
-            status=doc_data["status"]
-        ))
-    
-    return SuccessResponse(
-        message="문서 목록 조회 성공",
-        data={"documents": documents}
-    )
+    try:
+        # Qdrant에서 실제 저장된 벡터들을 기준으로 문서 목록 생성
+        from qdrant_client.models import Filter as QFilter, FieldCondition as QFieldCondition, MatchValue as QMatchValue
+        
+        # Qdrant에서 모든 포인트 조회 (메타데이터만)
+        if not vector_store.store or not vector_store.store.client:
+            return SuccessResponse(
+                message="벡터 스토어가 초기화되지 않음",
+                data={"documents": []}
+            )
+        
+        # 모든 포인트를 스크롤해서 가져오기
+        all_points = []
+        offset = None
+        
+        while True:
+            scroll_result = vector_store.store.client.scroll(
+                collection_name=vector_store.default_collection,
+                limit=100,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            if scroll_result is None:
+                break
+
+            points, next_offset = scroll_result
+            all_points.extend(points)
+            
+            if next_offset is None:
+                break
+            offset = next_offset
+        
+        # 문서 ID별로 그룹핑
+        documents_info = {}
+        for point in all_points:
+            payload = point.payload
+            doc_id = payload.get('document_id')
+            filename = payload.get('filename', 'Unknown')
+            created_at = payload.get('created_at', 'Unknown')
+            
+            if doc_id not in documents_info:
+                documents_info[doc_id] = {
+                    'id': doc_id,
+                    'filename': filename,
+                    'chunks_count': 0,
+                    'upload_time': created_at,
+                    'status': 'completed',
+                    'file_size': 0
+                }
+            
+            documents_info[doc_id]['chunks_count'] += 1
+            # 콘텐츠 길이로 대략적인 파일 크기 계산
+            content_length = len(payload.get('content', ''))
+            documents_info[doc_id]['file_size'] += content_length
+        
+        # DocumentData 객체로 변환
+        documents = []
+        for doc_info in documents_info.values():
+            documents.append(DocumentData(
+                id=doc_info['id'],
+                filename=doc_info['filename'],
+                file_size=doc_info['file_size'],
+                chunks_count=doc_info['chunks_count'],
+                upload_time=doc_info['upload_time'],
+                status=doc_info['status']
+            ))
+        
+        return SuccessResponse(
+            message=f"Qdrant 기준 문서 목록 조회 성공 ({len(documents)}개 문서)",
+            data={"documents": documents}
+        )
+        
+    except Exception as e:
+        logger.error(f"Qdrant 기준 문서 목록 조회 실패: {e}")
+        # Fallback 없이 오류 반환 - 실제 벡터가 있는 문서만 표시
+        return ErrorResponse(
+            message="문서 목록 조회 실패",
+            error_type="vector_store_error",
+            data={"detail": f"벡터 스토어 조회 실패: {str(e)}"}
+        )
 
 @router.get("/{document_id}",
     summary="📄 문서 상세 조회",
@@ -438,6 +553,16 @@ async def delete_document(document_id: str):
     
     doc_data = documents_db[document_id]
     
+    # 벡터 스토어에서 문서 벡터 삭제
+    try:
+        vector_deleted = await vector_store.delete_document_vectors(document_id)
+        if vector_deleted:
+            logger.info(f"벡터 삭제 성공: {document_id}")
+        else:
+            logger.warning(f"벡터 삭제 실패 또는 없음: {document_id}")
+    except Exception as e:
+        logger.error(f"벡터 삭제 오류 {document_id}: {e}")
+    
     # 메모리에서 파싱된 데이터 정리
     cleanup_success = cleanup_document_memory(doc_data)
     logger.debug(f"메모리 정리 {'성공' if cleanup_success else '실패'}: {document_id}")
@@ -501,25 +626,27 @@ class QueryRequest(BaseModel):
         }
 
 @router.post("/query",
-    summary="🔍 문서 질의응답",
+    summary="🔍 RAG 기반 문서 질의응답",
     description="""
-    업로드된 문서들을 대상으로 질의응답을 수행합니다.
+    업로드된 문서들을 대상으로 RAG 기반 질의응답을 수행합니다.
     
-    동기 처리:
-    • 즉시 검색 수행 후 결과 반환
-    • 실시간 검색 상태 확인 불가
-    • 간단한 질의응답에 적합
+    RAG 파이프라인:
+    • 쿼리 언어 감지 및 최적 모델 선택
+    • 벡터 임베딩 생성 및 유사도 검색
+    • 관련 문서 청크 추출 및 답변 생성
     
     검색 옵션:
     • top_k: 반환할 최대 청크 수 (1-20개, 기본값: 5)
-    • 의미 기반 유사도 검색
+    • similarity_threshold: 유사도 임계값 (기본값: 0.1)
+    • document_filter: 특정 문서로 제한 (선택사항)
     
-    현재 상태: 파서 테스트용 구현 (실제 벡터 검색 미구현)
+    지원 언어: 한국어, 영어, 일본어, 중국어 및 혼재 문서
     """,
-    response_description="질문에 대한 답변과 관련 문서 청크들 반환",
-    deprecated=True)
-async def test_query(request: QueryRequest):
-    """파서 테스트용 가짜 질의응답 (실제 검색 없이 청크 반환)"""
+    response_description="RAG 기반 답변과 관련 문서 청크들 반환")
+async def rag_query(request: QueryRequest, 
+                   similarity_threshold: float = Query(0.1, ge=0.0, le=1.0, description="유사도 임계값"),
+                   document_filter: Optional[str] = Query(None, description="특정 문서 ID로 검색 제한")):
+    """RAG 기반 실제 질의응답"""
     
     if not documents_db:
         return ErrorResponse(
@@ -528,44 +655,47 @@ async def test_query(request: QueryRequest):
             data={"detail": "질의응답을 위한 문서가 없습니다"}
         )
     
-    # 모든 문서의 청크를 수집
-    all_chunks = []
-    for doc_data in documents_db.values():
-        parsed_doc = cast(ParsedDocument, doc_data["parsed_doc"])
-        for chunk in parsed_doc.chunks:
-            all_chunks.append({
-                "document_id": doc_data["id"],
-                "chunk_id": chunk.chunk_id,
-                "content": chunk.content,
-                "similarity": 0.8,  # 가짜 유사도
-                "page": chunk.page_number,
-                "section_title": chunk.section_title,
-                "metadata": {
-                    **chunk.metadata,
-                    "filename": doc_data["filename"]
-                }
-            })
-    
-    # top_k 개만 반환
-    selected_chunks = all_chunks[:request.top_k or 5]
-    
-    # 가짜 답변 생성
-    answer = f"질문 '{request.query}'에 대한 답변입니다. (파서 테스트용 가짜 응답)\n\n"
-    answer += f"총 {len(documents_db)}개 문서에서 {len(all_chunks)}개 청크를 찾았습니다."
-    
-    return SuccessResponse(
-        message="질의응답 성공",
-        data={
-            "answer": answer,
-            "sources": selected_chunks,
-            "metadata": {
-                "query_time": "0.1s",
-                "model_used": "parser_test",
-                "language_detected": "ko",
-                "retrieval_count": len(selected_chunks)
+    try:
+        # RAG 서비스를 통한 검색 및 답변 생성
+        result = await rag_service.rag_search_and_answer(
+            query=request.query,
+            top_k=request.top_k,
+            document_filter=document_filter,
+            similarity_threshold=similarity_threshold,
+            context_only=False
+        )
+        
+        if not result['success']:
+            return ErrorResponse(
+                message="RAG 검색 실패",
+                error_type="search_error",
+                data={"detail": result.get('error', 'Unknown error')}
+            )
+        
+        return SuccessResponse(
+            message="RAG 질의응답 성공",
+            data={
+                "answer": result['answer'],
+                "sources": result['sources'],
+                "metadata": result['metadata']
             }
-        }
-    )
+        )
+        
+    except Exception as e:
+        logger.error(f"RAG 질의응답 실패: {e}")
+        error_id = error_logger.log_processing_error(
+            file_path="query",
+            parser_name="rag_service",
+            error=e,
+            file_size=None
+        )
+        
+        return ErrorResponse(
+            message="RAG 질의응답 처리 실패",
+            error_id=error_id,
+            error_type="rag_error",
+            data={"detail": str(e)}
+        )
 
 @router.get("/system/health", tags=["시스템"])
 async def get_system_status():

@@ -126,8 +126,37 @@ class BackgroundWorker:
             lambda: self.processor.process_file(file_path, **chunking_kwargs)
         )
         
-        # 진행상황 업데이트: 파싱 완료
-        await task_notifier.notify_progress(task_id, 80, "파싱이 완료되었습니다")
+        # 진행상황 업데이트: 파싱 완료, 임베딩 시작
+        await task_notifier.notify_progress(task_id, 50, "파싱 완료, 임베딩을 시작합니다")
+        
+        # 임베딩 처리
+        from ..api.documents import embed_document_chunks, vector_store
+        try:
+            embeddings, embedding_metadata = await embed_document_chunks(parsed_doc.chunks)
+            
+            # 문서 메타데이터 준비
+            doc_metadata = {
+                'filename': filename,
+                'file_type': parsed_doc.file_type or "unknown",
+                'parser_used': parsed_doc.metadata.get("parser", "unknown"),
+                'language_info': embedding_metadata['language_analysis']
+            }
+            
+            # 벡터 스토어에 저장
+            await task_notifier.notify_progress(task_id, 70, "벡터 데이터베이스에 저장 중")
+            await vector_store.store_document_vectors(
+                document_id=task_id,
+                embeddings=embeddings,
+                chunks=parsed_doc.chunks,
+                metadata=doc_metadata
+            )
+            
+            await task_notifier.notify_progress(task_id, 85, "임베딩 및 벡터 저장 완료")
+            
+        except Exception as e:
+            logger.error(f"❌ 임베딩 처리 실패 ({task_id}): {str(e)}")
+            # 임베딩 실패해도 문서는 저장하되 경고 표시
+            await task_notifier.notify_progress(task_id, 80, f"임베딩 실패하였으나 문서 저장은 완료: {str(e)}")
         
         # 결과 준비 (프론트엔드 UploadResponse 구조에 맞춤)
         result = {
@@ -196,9 +225,10 @@ class BackgroundWorker:
         chunk_size = metadata.get("chunk_size", 1000)
         chunk_overlap = metadata.get("chunk_overlap")
         
-        # 청킹 옵션 준비
+        # 청킹 옵션 검증
         try:
-            chunking_kwargs = prepare_chunking_kwargs(chunk_size, chunk_overlap)
+            # 검증만 수행 (실제 값은 개별 파라미터로 전달)
+            prepare_chunking_kwargs(chunk_size, chunk_overlap)
         except ValueError as e:
             error_msg = f"청킹 옵션 오류: {str(e)}"
             logger.error(f"❌ {error_msg}")
@@ -210,8 +240,40 @@ class BackgroundWorker:
             lambda: crawler.parse(url, chunk_size, chunk_overlap, max_depth, same_domain)
         )
         
-        # 진행상황 업데이트: 크롤링 완료
-        await task_notifier.notify_progress(task_id, 90, "크롤링이 완료되었습니다")
+        # 진행상황 업데이트: 크롤링 완료, 임베딩 시작  
+        await task_notifier.notify_progress(task_id, 50, "크롤링 완료, 임베딩을 시작합니다")
+        
+        # 임베딩 처리
+        from ..api.documents import embed_document_chunks, vector_store
+        try:
+            embeddings, embedding_metadata = await embed_document_chunks(parsed_doc.chunks)
+            
+            # 문서 메타데이터 준비
+            doc_metadata = {
+                'filename': f"crawled_{url}",
+                'file_type': "html", 
+                'parser_used': "web_crawler",
+                'language_info': embedding_metadata['language_analysis'],
+                'source_url': url,
+                'max_depth': max_depth,
+                'same_domain': same_domain
+            }
+            
+            # 벡터 스토어에 저장
+            await task_notifier.notify_progress(task_id, 70, "벡터 데이터베이스에 저장 중")
+            await vector_store.store_document_vectors(
+                document_id=task_id,
+                embeddings=embeddings,
+                chunks=parsed_doc.chunks,
+                metadata=doc_metadata
+            )
+            
+            await task_notifier.notify_progress(task_id, 85, "임베딩 및 벡터 저장 완료")
+            
+        except Exception as e:
+            logger.error(f"❌ 임베딩 처리 실패 ({task_id}): {str(e)}")
+            # 임베딩 실패해도 문서는 저장하되 경고 표시
+            await task_notifier.notify_progress(task_id, 80, f"임베딩 실패하였으나 문서 저장은 완료: {str(e)}")
         
         # 결과 준비 (프론트엔드 UploadResponse 구조에 맞춤)
         result = {
