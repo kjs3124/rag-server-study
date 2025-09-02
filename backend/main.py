@@ -24,69 +24,81 @@ from app.api.websocket import router as websocket_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """애플리케이션 생명주기 관리"""
-    # Startup
-    logging.info("🚀 RAG System API 시작")
-    
-    # 데이터 영속성 확인
-    from app.api.documents import documents_db
-    from app.services.task_manager import task_manager
-    
-    logging.info(f"📚 저장된 데이터 로드 완료:")
-    logging.info(f"  - 문서: {len(documents_db)}개")
-    logging.info(f"  - 작업: {len(task_manager.tasks)}개")
-    
-    # RAG 서비스 초기화
-    from app.services.rag_service import rag_service
-    rag_initialized = await rag_service.initialize()
-    if rag_initialized:
-        logging.info("✅ RAG 서비스 초기화 완료")
-    else:
-        logging.warning("⚠️ RAG 서비스 초기화 실패 - 벡터 검색 비활성화")
-    
-    # 백그라운드 워커 시작
-    from app.services.background_worker import start_background_worker
-    await start_background_worker()
-    logging.info("✅ 백그라운드 워커 시작 완료")
-    
-    # 기존 문서들의 임베딩 처리 확인 및 재처리
-    #await check_and_reprocess_embeddings()
-    
-    yield  # 여기서 애플리케이션 실행
-    
-    # Shutdown
-    logging.info("⏹️ RAG System API 종료")
-    
-    # 백그라운드 워커 정지
-    from app.services.background_worker import stop_background_worker, worker_task
-    stop_background_worker()
-    
-    # 워커 태스크가 완전히 종료될 때까지 대기
-    if worker_task and not worker_task.done():
-        try:
-            await asyncio.wait_for(worker_task, timeout=5.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            pass
-    
-    logging.info("✅ 백그라운드 워커 정지 완료")
-    
-    # 데이터 최종 저장 확인
-    from app.services.persistence import save_documents, save_tasks
+    startup_success = False
     
     try:
-        save_documents(documents_db)
-        save_tasks(task_manager.tasks)
-        logging.info("💾 데이터 최종 저장 완료:")
+        # Startup
+        logging.info("🚀 RAG System API 시작")
+        
+        # 데이터 영속성 확인
+        from app.api.documents import documents_db
+        from app.services.task_manager import task_manager
+        
+        logging.info(f"📚 저장된 데이터 로드 완료:")
         logging.info(f"  - 문서: {len(documents_db)}개")
         logging.info(f"  - 작업: {len(task_manager.tasks)}개")
+        
+        # RAG 서비스 초기화
+        from app.services.rag_service import rag_service
+        rag_initialized = await rag_service.initialize()
+        if rag_initialized:
+            logging.info("✅ RAG 서비스 초기화 완료")
+        else:
+            logging.warning("⚠️ RAG 서비스 초기화 실패 - 벡터 검색 비활성화")
+        
+        # 백그라운드 워커 시작
+        from app.services.background_worker import start_background_worker
+        await start_background_worker()
+        logging.info("✅ 백그라운드 워커 시작 완료")
+        
+        startup_success = True
+        
     except Exception as e:
-        logging.error(f"⚠️ 데이터 저장 오류: {str(e)}")
+        logging.error(f"❌ 시작 과정에서 오류: {str(e)}")
+        startup_success = False
     
-    # 오래된 작업 정리 (선택적)
-    cleaned = task_manager.cleanup_old_tasks(hours=72)  # 3일 이상 오래된 작업
-    if cleaned > 0:
-        logging.info(f"🗑️ 오래된 작업 {cleaned}개 정리")
-    
-    logging.info("🏁 애플리케이션 종료 완료")
+    try:
+        yield  # 여기서 애플리케이션 실행
+    except asyncio.CancelledError:
+        logging.info("📤 애플리케이션 취소됨")
+    except Exception as e:
+        logging.error(f"❌ 애플리케이션 실행 중 오류: {str(e)}")
+    finally:
+        # Shutdown - startup이 성공한 경우에만 정리 작업 수행
+        if startup_success:
+            try:
+                logging.info("⏹️ RAG System API 종료")
+                
+                # 백그라운드 워커 정지
+                from app.services.background_worker import stop_background_worker, worker_task
+                stop_background_worker()
+                
+                # 워커 태스크가 완전히 종료될 때까지 대기
+                if worker_task and not worker_task.done():
+                    try:
+                        await asyncio.wait_for(worker_task, timeout=2.0)  # 타임아웃 단축
+                    except (asyncio.TimeoutError, asyncio.CancelledError):
+                        if worker_task and not worker_task.done():
+                            worker_task.cancel()
+                
+                logging.info("✅ 백그라운드 워커 정지 완료")
+                
+                # 데이터 최종 저장 확인
+                from app.services.persistence import save_documents, save_tasks
+                from app.api.documents import documents_db
+                from app.services.task_manager import task_manager
+                
+                try:
+                    save_documents(documents_db)
+                    save_tasks(task_manager.tasks)
+                    logging.info("💾 데이터 최종 저장 완료")
+                except Exception as e:
+                    logging.error(f"⚠️ 데이터 저장 오류: {str(e)}")
+                
+            except Exception as e:
+                logging.error(f"⚠️ 종료 과정에서 오류: {str(e)}")
+        
+        logging.info("🏁 애플리케이션 종료 완료")
 
 app = FastAPI(
     title="RAG System API",
@@ -266,14 +278,34 @@ async def check_and_reprocess_embeddings():
 if __name__ == "__main__":
     def signal_handler(sig, frame):
         logging.info("🛑 강제 종료 신호 수신")
-        sys.exit(0)
+        import os
+        os._exit(0)  # 강제 종료
     
     # Signal handler 등록
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    if hasattr(signal, 'SIGBREAK'):  # Windows
+        signal.signal(signal.SIGBREAK, signal_handler)
     
     try:
-        uvicorn.run(app, host="127.0.0.1", port=8099)
-    except KeyboardInterrupt:
-        logging.info("🛑 KeyboardInterrupt 수신, 종료")
-        sys.exit(0)
+        # Uvicorn 서버 설정 - 더 공격적인 종료 옵션
+        config = uvicorn.Config(
+            app=app, 
+            host="127.0.0.1", 
+            port=8099,
+            loop="asyncio",
+            log_level="info"
+        )
+        server = uvicorn.Server(config)
+        
+        # 서버 실행
+        server.run()
+        
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("🛑 KeyboardInterrupt/SystemExit 수신, 즉시 종료")
+        import os
+        os._exit(0)
+    except Exception as e:
+        logging.error(f"❌ 서버 실행 오류: {str(e)}")
+        import os
+        os._exit(1)

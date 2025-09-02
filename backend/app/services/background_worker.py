@@ -33,22 +33,29 @@ class BackgroundWorker:
                     if task_id:
                         await self.process_task(task_id)
                     else:
-                        # 작업이 없으면 잠시 대기 후 메모리 정리 확인
-                        await asyncio.sleep(1)
+                        # 작업이 없으면 잠시 대기 (더 짧은 간격으로 중단 신호 감지)
+                        for _ in range(10):  # 1초를 0.1초씩 분할
+                            if not self.running:
+                                break
+                            await asyncio.sleep(0.1)
                         # 30분마다 자동 메모리 정리
                         auto_cleanup()
                         
                 except asyncio.CancelledError:
                     logger.info("📤 백그라운드 워커 취소됨")
                     break
+                except KeyboardInterrupt:
+                    logger.info("📤 백그라운드 워커 키보드 인터럽트")
+                    break
                 except Exception as e:
                     if self.running:
                         logger.error(f"워커 에러: {e}")
                         await asyncio.sleep(5)
                     
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, KeyboardInterrupt):
             logger.info("📤 백그라운드 워커 취소됨")
         finally:
+            self.running = False
             logger.info("🏁 백그라운드 워커 종료")
                 
     def stop(self):
@@ -121,10 +128,15 @@ class BackgroundWorker:
         
         # 문서 처리 (동기 함수를 비동기로 실행)
         loop = asyncio.get_event_loop()
-        parsed_doc = await loop.run_in_executor(
-            None, 
-            lambda: self.processor.process_file(file_path, **chunking_kwargs)
-        )
+        try:
+            parsed_doc = await loop.run_in_executor(
+                None, 
+                lambda: self.processor.process_file(file_path, **chunking_kwargs)
+            )
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            logger.info("📤 파일 처리 중단됨")
+            await task_notifier.notify_failed(task_id, "사용자에 의해 중단됨")
+            raise
         
         # 진행상황 업데이트: 파싱 완료, 임베딩 시작
         await task_notifier.notify_progress(task_id, 50, "파싱 완료, 임베딩을 시작합니다")
@@ -215,6 +227,10 @@ class BackgroundWorker:
         from ..services.parsers.web_crawler import WebCrawlerParser
         crawler = WebCrawlerParser(delay=1.0)
         
+        # 백그라운드 워커가 중단되면 크롤러도 취소
+        if not self.running:
+            crawler.cancel()
+        
         # 크롤링 실행 (동기 함수를 비동기로 실행)
         loop = asyncio.get_event_loop()
         
@@ -235,10 +251,20 @@ class BackgroundWorker:
             await task_notifier.notify_failed(task_id, error_msg)
             return
         
-        parsed_doc = await loop.run_in_executor(
-            None, 
-            lambda: crawler.parse(url, chunk_size, chunk_overlap, max_depth, same_domain)
-        )
+        try:
+            def crawl_with_cancel_check():
+                # 크롤링 시작 전 취소 체크
+                if not self.running:
+                    crawler.cancel()
+                    raise asyncio.CancelledError("백그라운드 워커 중단")
+                return crawler.parse(url, chunk_size, chunk_overlap, max_depth, same_domain)
+                
+            parsed_doc = await loop.run_in_executor(None, crawl_with_cancel_check)
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            logger.info("📤 웹 크롤링 중단됨")
+            crawler.cancel()  # 크롤러 명시적 취소
+            await task_notifier.notify_failed(task_id, "사용자에 의해 중단됨")
+            raise
         
         # 진행상황 업데이트: 크롤링 완료, 임베딩 시작  
         await task_notifier.notify_progress(task_id, 50, "크롤링 완료, 임베딩을 시작합니다")

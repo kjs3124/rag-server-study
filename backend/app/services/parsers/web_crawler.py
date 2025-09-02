@@ -1,14 +1,14 @@
 import requests
 from urllib.parse import urljoin, urlparse
-from typing import List, Optional, Any, Tuple
+from typing import List, Optional, Any, Tuple, Union
 
-urllib3: Any = None
+urllib3: Optional[Any] = None
 try:
     import urllib3 as _urllib3  # type: ignore
     urllib3 = _urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 except ImportError:
-    pass
+    urllib3 = None
 import asyncio
 
 try:
@@ -45,6 +45,15 @@ class WebCrawlerParser(BaseDocumentParser):
     
     def __init__(self, delay: float = 1.0):
         self.delay = delay  # 요청 간 지연시간
+        self._cancelled = False  # 중단 플래그
+        
+    def _should_continue(self) -> bool:
+        """크롤링 계속 여부 확인"""
+        return not self._cancelled
+        
+    def cancel(self):
+        """크롤링 중단"""
+        self._cancelled = True
         
     def parse(self, file_path: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, 
               max_depth: int = 1, same_domain: bool = True, **kwargs) -> ParsedDocument:
@@ -88,49 +97,35 @@ class WebCrawlerParser(BaseDocumentParser):
         if not BS4_AVAILABLE:
             raise ImportError("웹 크롤링을 위해 beautifulsoup4가 필요합니다")
         
-        visited_urls = set()
-        all_chunks: List[DocumentChunk] = []
         url = file_path  # URL을 file_path로 받음
-        urls_to_visit = [(url, 0)]  # (url, depth)
         
-        base_domain = urlparse(url).netloc if same_domain else None
-        
-        while urls_to_visit:
-            current_url, depth = urls_to_visit.pop(0)
+        # 단일 URL만 크롤링 (링크 따라가기 없음)
+        try:
+            # 중단 체크
+            if not self._should_continue():
+                print("크롤링이 중단되었습니다.")
+                return ParsedDocument(chunks=[], metadata={"source_type": "web_crawl", "base_url": url}, file_type="web")
+                
+            chunks, _ = await self._crawl_single_page(url, chunk_size, chunk_overlap, **kwargs)
             
-            if current_url in visited_urls or depth > max_depth:
-                continue
-                
-            try:
-                chunks, links = await self._crawl_single_page(current_url, chunk_size, chunk_overlap, **kwargs)
-                all_chunks.extend(chunks)
-                visited_urls.add(current_url)
-                
-                # 링크 추가 (깊이 제한 및 도메인 제한 확인)
-                if depth < max_depth:
-                    for link in links:
-                        absolute_link = urljoin(current_url, link)
-                        link_domain = urlparse(absolute_link).netloc
-                        
-                        if (not same_domain or link_domain == base_domain) and \
-                           absolute_link not in visited_urls:
-                            urls_to_visit.append((absolute_link, depth + 1))
-                
-                # 요청 간 지연
-                if self.delay > 0:
-                    await asyncio.sleep(self.delay)
-                    
-            except Exception as e:
-                print(f"URL 크롤링 오류 {current_url}: {str(e)}")
-                continue
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            print("크롤링이 사용자에 의해 중단되었습니다.")
+            raise
+        except Exception as e:
+            error_msg = str(e)
+            if "Exceeded 0 redirects" in error_msg:
+                print(f"리다이렉션 제한으로 실패: {url}")
+            else:
+                print(f"URL 크롤링 오류 {url}: {error_msg}")
+            chunks = []
         
         return ParsedDocument(
-            chunks=all_chunks,
+            chunks=chunks,
             metadata={
                 "source_type": "web_crawl",
                 "base_url": url,
-                "total_chunks": len(all_chunks),
-                "crawled_urls": len(visited_urls),
+                "total_chunks": len(chunks),
+                "crawled_urls": 1,
                 "max_depth": max_depth
             },
             file_type="web"
@@ -140,31 +135,89 @@ class WebCrawlerParser(BaseDocumentParser):
         """단일 웹페이지 크롤링"""
         return await self._crawl_with_trafilatura(url, chunk_size, chunk_overlap, **kwargs)
     
-    async def _crawl_with_trafilatura(self, url: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, **kwargs) -> Tuple[List[DocumentChunk], List[str]]:
+    async def _crawl_with_trafilatura(self, url: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, max_depth: int = 1, same_domain: bool = True, **kwargs) -> Tuple[List[DocumentChunk], List[str]]:
         """trafilatura를 사용한 고품질 텍스트 추출"""
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        # trafilatura로 텍스트 추출
+        import ssl
+            
+        # SSL 검증 비활성화 및 urllib3 리다이렉션 비활성화
+        import os
+        os.environ['PYTHONHTTPSVERIFY'] = '0'
+        os.environ['CURL_CA_BUNDLE'] = ''
+        
+        
+        # 중단 체크
+        if not self._should_continue():
+            return [], []
+            
+        # trafilatura 크롤링으로 텍스트 추출
         if TRAFILATURA_AVAILABLE and trafilatura is not None:
             try:
-                # trafilatura SSL 검증 우회 설정
-                try:
-                    # trafilatura config에 SSL 검증 비활성화 설정
-                    config = trafilatura.settings.DEFAULT_CONFIG
-                    config['VERIFY_SSL'] = False
-                    downloaded = trafilatura.fetch_url(url, config=config)
-                except:
-                    # 폴백: 기본 설정으로 시도
-                    downloaded = trafilatura.fetch_url(url)
+                # 크롤링 설정 (trafilatura 기본값들 포함)
+                import configparser
+                config = configparser.ConfigParser()
+                
+                # trafilatura에서 요구하는 기본 설정값들 (완전한 DEFAULT 섹션)
+                config.set('DEFAULT', 'MAX_REDIRECTS', '0')
+                config.set('DEFAULT', 'DOWNLOAD_TIMEOUT', '30')
+                config.set('DEFAULT', 'MIN_FILE_SIZE', '10')
+                config.set('DEFAULT', 'MAX_FILE_SIZE', '20000000')
+                config.set('DEFAULT', 'SLEEP_TIME', '5')
+                config.set('DEFAULT', 'COOKIE', '')
+                config.set('DEFAULT', 'USER_AGENTS', '')
+                config.set('DEFAULT', 'MIN_EXTRACTED_SIZE', '250')
+                config.set('DEFAULT', 'MIN_OUTPUT_SIZE', '1')
+                config.set('DEFAULT', 'EXTRACTION_TIMEOUT', '30')
+                
+                # trafilatura 크롤링 실행
+                from trafilatura.spider import focused_crawler
+                
+                # max_depth에 따른 크롤링 URL 개수 결정
+                max_urls = min(max_depth * 10, 30) if max_depth > 1 else 1
+                
+                if max_depth <= 1:
+                    # 단일 페이지만 처리
+                    downloaded = trafilatura.fetch_url(url, no_ssl=True, config=config)
+                    if downloaded:
+                        chunks = self._process_single_page(downloaded, url, chunk_size, chunk_overlap, **kwargs)
+                        return chunks, []
+                else:
+                    # 다중 페이지 크롤링 (trafilatura 공식 API)
+                    to_visit, known_links = focused_crawler(
+                        url, 
+                        max_seen_urls=max_urls,
+                        max_known_urls=max_urls * 10
+                    )
+                    all_chunks = []
+                    crawled_count = 0
+                    
+                    for crawled_url in to_visit:
+                        if not self._should_continue() or crawled_count >= max_urls:
+                            break
+                        
+                        print(f"크롤링 중: {crawled_url}")
+                        page_content = trafilatura.fetch_url(crawled_url, no_ssl=True, config=config)
+                        if page_content:
+                            chunks = self._process_single_page(page_content, crawled_url, chunk_size, chunk_overlap, **kwargs)
+                            all_chunks.extend(chunks)
+                            crawled_count += 1
+                    
+                    print(f"✅ 크롤링 완료: {crawled_count}개 페이지, {len(all_chunks)}개 청크")
+                    return all_chunks, list(to_visit)
+                    
                 if downloaded:
                     # 1차: HTML 헤더 기반 구조적 청킹 시도
                     if HTML_SPLITTER_AVAILABLE and HTMLHeaderTextSplitter is not None:
                         try:
                             chunks, links = self._create_html_header_chunks(downloaded, url)
                             if chunks:
+                                # 중단 체크 
+                                if not self._should_continue():
+                                    raise asyncio.CancelledError("크롤링 중단")
                                 print(f"✅ HTML 헤더 청킹 성공: {len(chunks)}개 청크 생성")
                                 return chunks, links
                         except Exception as e:
@@ -189,8 +242,43 @@ class WebCrawlerParser(BaseDocumentParser):
             except Exception as e:
                 print(f"trafilatura 실패: {e}, requests 폴백 시도")
         
-        # 폴백: requests + BeautifulSoup (동기 메서드를 비동기에서 호출하므로 직접 구현)
-        response = requests.get(url, headers=headers, timeout=10, verify=False)
+        # 중단 체크 (폴백 전)
+        if not self._should_continue():
+            return [], []
+            
+        # 폴백: requests + BeautifulSoup (SSL 우회 적용)
+        import requests
+        import ssl
+        
+        # SSL 컨텍스트 전역 설정
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        # requests 세션 SSL 우회 설정 및 리다이렉션 비활성화
+        session = requests.Session()
+        session.verify = False
+        session.trust_env = False
+        session.max_redirects = 0  # 리다이렉션 비활성화
+        
+        # requests 어댑터로 SSL 우회 강화
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.ssl_ import create_urllib3_context
+        
+        class SSLNoRedirectAdapter(HTTPAdapter):
+            def init_poolmanager(self, *args, **pool_kwargs):
+                pool_kwargs['ssl_context'] = ssl_context
+                return super().init_poolmanager(*args, **pool_kwargs)
+            
+            def send(self, request, stream=False, timeout=None, verify=None, cert=None, proxies=None):
+                # 리다이렉션 완전 비활성화
+                from requests import PreparedRequest, Response
+                return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
+        
+        session.mount('https://', SSLNoRedirectAdapter())
+        session.mount('http://', SSLNoRedirectAdapter())
+        
+        response = session.get(url, headers=headers, timeout=10, verify=False, allow_redirects=False)
         response.raise_for_status()
         
         if BeautifulSoup_TYPE is None:
@@ -291,5 +379,23 @@ class WebCrawlerParser(BaseDocumentParser):
         
         return chunks, links
     
+    def _process_single_page(self, html_content: str, url: str, chunk_size: int, chunk_overlap: Optional[int], **kwargs) -> List[DocumentChunk]:
+        """단일 페이지 HTML 컨텐츠를 처리하여 청크 생성"""
+        # 1차: HTML 헤더 기반 구조적 청킹 시도
+        if HTML_SPLITTER_AVAILABLE and HTMLHeaderTextSplitter is not None:
+            try:
+                chunks, _ = self._create_html_header_chunks(html_content, url)
+                if chunks:
+                    return chunks
+            except Exception as e:
+                print(f"HTML 헤더 청킹 실패: {e}, 일반 텍스트 청킹으로 폴백")
+        
+        # 2차: trafilatura 텍스트 추출 + 커스텀 청킹
+        clean_text = trafilatura.extract(html_content, include_comments=False, include_tables=True)
+        if clean_text and len(clean_text) > 50:
+            return self._create_chunks_from_text(clean_text, url, chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
+        
+        return []
+
     def get_supported_extensions(self) -> List[str]:
         return ['url']
