@@ -1,0 +1,90 @@
+# 로깅 설정
+logging:
+  # 기본 로깅 레벨
+  level: INFO
+  
+  # 로그 포맷
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+  
+  # 로거별 세부 설정
+  loggers:
+    root:
+      level: INFO
+      handlers: ["console", "file"]
+      
+    "app.services.embedding":
+      level: INFO
+      handlers: ["console", "file"]
+      propagate: false
+      
+    "app.services.vector_store":
+      level: INFO  
+      handlers: ["console", "file"]
+      propagate: false
+      
+    "app.services.parsers.web_crawler":
+      level: INFO
+      handlers: ["console", "file"] 
+      propagate: false
+      
+    "trafilatura":
+      level: WARNING  # trafilatura 로그 줄이기
+      handlers: ["file"]
+      propagate: false
+      
+    "qdrant_client":
+      level: WARNING  # Qdrant 클라이언트 로그 줄이기
+      handlers: ["file"]
+      propagate: false
+      
+  # 핸들러 설정
+  handlers:
+    console:
+      class: "StreamHandler"
+      level: INFO
+      formatter: "standard"
+      stream: "ext://sys.stdout"
+      
+    file:
+      class: "RotatingFileHandler"
+      level: DEBUG
+      formatter: "detailed"
+      filename: "logs/app.log"
+      max_bytes: 10485760  # 10MB
+      backup_count: 5
+      encoding: "utf-8"
+      
+    error_file:
+      class: "RotatingFileHandler"
+      level: ERROR
+      formatter: "detailed"
+      filename: "logs/error.log"
+      max_bytes: 5242880  # 5MB
+      backup_count: 3
+      encoding: "utf-8"
+      
+  # 포맷터 설정
+  formatters:
+    standard:
+      format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+      datefmt: "%Y-%m-%d %H:%M:%S"
+      
+    detailed:
+      format: "%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(lineno)d - %(funcName)s() - %(message)s"
+      datefmt: "%Y-%m-%d %H:%M:%S"
+      
+    json:
+      format: '{"timestamp": "%(asctime)s", "logger": "%(name)s", "level": "%(levelname)s", "message": "%(message)s"}'
+      datefmt: "%Y-%m-%d %H:%M:%S"
+
+# 로그 디렉토리 설정
+directories:
+  logs_dir: "logs"
+  create_if_missing: true
+  
+# 로그 모니터링 설정 (선택사항)
+monitoring:
+  error_threshold: 10  # 시간당 에러 로그 임계값
+  warning_threshold: 50  # 시간당 경고 로그 임계값
+  alert_enabled: false

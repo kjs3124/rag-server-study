@@ -1,0 +1,65 @@
+# 웹 크롤러 설정
+crawler:
+  # 기본 설정
+  defaults:
+    delay: 1.0  # 요청 간 지연시간 (초)
+    max_depth: 1
+    same_domain: true
+    chunk_size: 1000
+    chunk_overlap: null  # null이면 자동 계산
+    
+  # 요청 설정
+  request:
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    timeout: 10
+    max_redirects: 0  # 리다이렉트 비활성화
+    
+  # SSL 설정
+  ssl:
+    verify: false
+    bypass_cert_check: true
+    trust_env: false
+    
+  # trafilatura 설정
+  trafilatura:
+    MAX_REDIRECTS: "0"
+    DOWNLOAD_TIMEOUT: "30"
+    MIN_FILE_SIZE: "10"
+    MAX_FILE_SIZE: "20000000"  # 20MB
+    SLEEP_TIME: "5"
+    COOKIE: ""
+    USER_AGENTS: ""
+    MIN_EXTRACTED_SIZE: "250"
+    MIN_OUTPUT_SIZE: "1"
+    EXTRACTION_TIMEOUT: "30"
+    
+    # 추출 옵션
+    include_comments: false
+    include_tables: true
+    
+  # 크롤링 제한
+  limits:
+    max_urls_single_depth: 1
+    max_urls_multi_depth: 30
+    url_multiplier: 10  # max_depth * url_multiplier = max_urls
+    content_min_length: 50  # 최소 콘텐츠 길이
+    
+  # HTML 파싱 설정
+  html_parsing:
+    # HTML 헤더 기반 분할
+    headers_to_split:
+      - tag: "h1"
+        name: "Header 1"
+      - tag: "h2" 
+        name: "Header 2"
+      - tag: "h3"
+        name: "Header 3"
+        
+    # 제거할 태그
+    remove_tags: ["script", "style"]
+    
+    # 링크 추출 설정
+    extract_links: true
+    link_tag: "a"
+    link_attribute: "href"

@@ -1,0 +1,87 @@
+# 문서 파서 설정
+parsers:
+  # 파일 확장자별 파서 매핑
+  extensions:
+    ".pdf": "PDFParser"
+    ".docx": "DOCXParser" 
+    ".doc": "DOCXParser"  # legacy Word format
+    ".txt": "TXTParser"
+    ".text": "TXTParser"
+    ".html": "HTMLParser"
+    ".htm": "HTMLParser"
+    ".md": "MarkdownParser"
+    ".markdown": "MarkdownParser"
+    ".csv": "CSVParser"
+    ".pptx": "PPTXParser"
+    ".ppt": "PPTXParser"  # legacy PowerPoint
+    ".xlsx": "ExcelParser"
+    ".xls": "ExcelParser"  # legacy Excel
+    
+  # 기본 파서 (확장자를 찾을 수 없을 때)
+  default_parser: "TXTParser"
+  
+  # URL 감지 설정
+  url_detection:
+    schemes: ["http", "https", "ftp"]
+    require_netloc: true
+    fallback_parser: "WebCrawlerParser"
+
+# 개별 파서 설정
+pdf_parser:
+  # 사용할 PDF 라이브러리 우선순위
+  backends: ["pymupdf", "pdfplumber"]  # 우선순위대로 시도
+  
+  # PyMuPDF 설정
+  pymupdf:
+    extract_images: false
+    extract_tables: true
+    
+  # pdfplumber 설정 (fallback)
+  pdfplumber:
+    extract_tables: true
+    table_settings:
+      vertical_strategy: "lines"
+      horizontal_strategy: "lines"
+
+docx_parser:
+  extract_tables: true
+  extract_images: false
+  preserve_formatting: false
+
+excel_parser:
+  # 처리할 시트 설정
+  sheets:
+    process_all: true
+    max_sheets: 10
+    skip_empty: true
+    
+  # 데이터 처리
+  data_processing:
+    skip_empty_rows: true
+    skip_empty_cols: true
+    max_rows_per_sheet: 10000
+
+pptx_parser:
+  extract_slide_notes: true
+  extract_slide_layouts: false
+  slide_separator: "\n---\n"
+
+csv_parser:
+  encoding: "utf-8"
+  delimiter: ","
+  quote_char: '"'
+  escape_char: "\\"
+  max_rows: 10000
+
+html_parser:
+  remove_tags: ["script", "style", "nav", "footer"]
+  extract_links: false
+  preserve_structure: true
+
+txt_parser:
+  encoding_detection: true
+  fallback_encoding: "utf-8"
+  
+markdown_parser:
+  preserve_code_blocks: true
+  extract_links: false

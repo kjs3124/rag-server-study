@@ -99,10 +99,16 @@ class BackgroundWorker:
                 raise ValueError(f"지원하지 않는 작업 타입: {task.task_type}")
                 
         except Exception as e:
-            error_msg = f"작업 처리 실패: {str(e)}"
+            error_msg = f"작업 처리 실패: {str(e)[:200]}{'...' if len(str(e)) > 200 else ''}"
             logger.error(f"❌ {error_msg}")
-            logger.error(traceback.format_exc())
-            await task_notifier.notify_failed(task_id, error_msg)
+            logger.error(f"상세 오류 정보: {traceback.format_exc()}")
+            try:
+                await task_notifier.notify_failed(task_id, error_msg)
+            except Exception as notify_error:
+                logger.error(f"알림 전송 실패: {notify_error}")
+            
+            # 태스크 상태를 실패로 업데이트
+            task_manager.update_task(task_id, status=TaskStatus.FAILED, error=str(e))
             
     async def _process_file_upload(self, task_id: str, metadata: Dict[str, Any]):
         """파일 업로드 처리"""
@@ -167,8 +173,10 @@ class BackgroundWorker:
             
         except Exception as e:
             logger.error(f"❌ 임베딩 처리 실패 ({task_id}): {str(e)}")
+            logger.error(traceback.format_exc())
             # 임베딩 실패해도 문서는 저장하되 경고 표시
-            await task_notifier.notify_progress(task_id, 80, f"임베딩 실패하였으나 문서 저장은 완료: {str(e)}")
+            error_msg = str(e)[:200] + "..." if len(str(e)) > 200 else str(e)
+            await task_notifier.notify_progress(task_id, 80, f"임베딩 실패하였으나 문서 저장은 완료: {error_msg}")
         
         # 결과 준비 (프론트엔드 UploadResponse 구조에 맞춤)
         result = {
@@ -298,8 +306,10 @@ class BackgroundWorker:
             
         except Exception as e:
             logger.error(f"❌ 임베딩 처리 실패 ({task_id}): {str(e)}")
+            logger.error(traceback.format_exc())
             # 임베딩 실패해도 문서는 저장하되 경고 표시
-            await task_notifier.notify_progress(task_id, 80, f"임베딩 실패하였으나 문서 저장은 완료: {str(e)}")
+            error_msg = str(e)[:200] + "..." if len(str(e)) > 200 else str(e)
+            await task_notifier.notify_progress(task_id, 80, f"임베딩 실패하였으나 문서 저장은 완료: {error_msg}")
         
         # 결과 준비 (프론트엔드 UploadResponse 구조에 맞춤)
         result = {

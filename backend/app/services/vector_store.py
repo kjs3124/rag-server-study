@@ -43,25 +43,42 @@ except ImportError as e:
     PointIdsList = _QdrantNotAvailable
 
 from ..services.parsers.base import DocumentChunk
+from ..core.config import get_database_config
 
 logger = logging.getLogger(__name__)
 
 class QdrantVectorStore:
     """Qdrant 벡터 스토어 구현"""
     
-    def __init__(self, url: str = "http://localhost:6333", api_key: Optional[str] = None):
+    def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None):
         if not QDRANT_AVAILABLE:
             raise ImportError("Qdrant 클라이언트가 설치되지 않았습니다")
+        
+        # 설정 로드
+        try:
+            config = get_database_config()
+            connection_config = config.qdrant.connection
+            self.timeout = connection_config.get('timeout', 30)
+            self.prefer_grpc = connection_config.get('prefer_grpc', False)
+            default_url = connection_config.get('url', 'http://localhost:6333')
+        except Exception as e:
+            logger.warning(f"데이터베이스 설정 로드 실패, 기본값 사용: {e}")
+            self.timeout = 30
+            self.prefer_grpc = False
+            default_url = 'http://localhost:6333'
+        
+        # URL과 API 키 설정
+        self.url = url or default_url
+        self.api_key = api_key
             
         # 버전 호환성 체크 비활성화
         self.client = QdrantClient(
-            url=url, 
-            api_key=api_key,
-            prefer_grpc=False,  # HTTP API 사용
-            timeout=30
+            url=self.url, 
+            api_key=self.api_key,
+            prefer_grpc=self.prefer_grpc,
+            timeout=self.timeout
         )
-        self.url = url
-        logger.info(f"Qdrant 클라이언트 초기화: {url}")
+        logger.info(f"Qdrant 클라이언트 초기화: {self.url}")
     
     async def create_collection(self, collection_name: str, dimension: int) -> bool:
         """
@@ -89,11 +106,20 @@ class QdrantVectorStore:
             # 컬렉션 생성
             if QDRANT_AVAILABLE:
                 from qdrant_client.models import VectorParams as QVectorParams, Distance as QDistance
+                
+                # 설정에서 거리 메트릭 가져오기
+                try:
+                    config = get_database_config()
+                    distance_metric_name = config.qdrant.collections.get('distance_metric', 'COSINE')
+                    distance_metric = getattr(QDistance, distance_metric_name.upper(), QDistance.COSINE)
+                except Exception:
+                    distance_metric = QDistance.COSINE
+                
                 self.client.create_collection(
                     collection_name=collection_name,
                     vectors_config=QVectorParams(
                         size=dimension,
-                        distance=QDistance.COSINE
+                        distance=distance_metric
                     )
                 )
             else:
@@ -338,8 +364,19 @@ class VectorStoreManager:
     
     def __init__(self):
         self.store: Optional[QdrantVectorStore] = None
-        self.default_collection = "documents"
-        self.vector_dimension = 1024  # 기본 벡터 차원
+        
+        # 설정 로드
+        try:
+            config = get_database_config()
+            collections_config = config.qdrant.collections
+            self.default_collection = collections_config.get('default_name', 'documents')
+            self.vector_dimension = collections_config.get('default_dimension', 1024)
+            self.distance_metric = collections_config.get('distance_metric', 'COSINE')
+        except Exception as e:
+            logger.warning(f"데이터베이스 설정 로드 실패, 기본값 사용: {e}")
+            self.default_collection = "documents"
+            self.vector_dimension = 1024
+            self.distance_metric = 'COSINE'
         
     async def initialize(self, qdrant_url: Optional[str] = None, api_key: Optional[str] = None) -> bool:
         """
@@ -353,11 +390,23 @@ class VectorStoreManager:
             bool: 초기화 성공 여부
         """
         try:
+            # 설정에서 환경변수 키 가져오기
+            try:
+                config = get_database_config()
+                connection_config = config.qdrant.connection
+                env_url_key = connection_config.get('env_url_key', 'QDRANT_URL')
+                env_api_key_key = connection_config.get('env_api_key_key', 'QDRANT_API_KEY')
+                default_url = connection_config.get('url', 'http://localhost:6333')
+            except Exception:
+                env_url_key = 'QDRANT_URL'
+                env_api_key_key = 'QDRANT_API_KEY'
+                default_url = 'http://localhost:6333'
+            
             if not qdrant_url:
-                qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
+                qdrant_url = os.getenv(env_url_key, default_url)
             
             if not api_key:
-                api_key = os.getenv("QDRANT_API_KEY")
+                api_key = os.getenv(env_api_key_key)
             
             self.store = QdrantVectorStore(url=qdrant_url, api_key=api_key)
             
@@ -402,10 +451,17 @@ class VectorStoreManager:
                 if not chunk:
                     continue
                     
+                # 설정에서 콘텐츠 길이 제한 가져오기
+                try:
+                    config = get_database_config()
+                    content_limit = config.qdrant.vector_processing.get('content_preview_length', 500)
+                except Exception:
+                    content_limit = 500
+                
                 vector_metadata = {
                     'document_id': document_id,
                     'chunk_id': chunk_id,
-                    'content': chunk.content[:500],  # 검색 결과 표시용 (길이 제한)
+                    'content': chunk.content[:content_limit],  # 검색 결과 표시용 (길이 제한)
                     'page_number': chunk.page_number,
                     'section_title': chunk.section_title or "",
                     'chunk_index': chunk.metadata.get('index', 0),
@@ -477,14 +533,14 @@ class VectorStoreManager:
             return False
     
     async def search_similar_chunks(self, query_vector: np.ndarray,
-                                  top_k: int = 20,
+                                  top_k: Optional[int] = None,
                                   document_filter: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         유사한 청크 검색
         
         Args:
             query_vector: 쿼리 벡터
-            top_k: 반환할 최대 개수  
+            top_k: 반환할 최대 개수 (None이면 설정에서 로드)
             document_filter: 특정 문서로 제한
             
         Returns:
@@ -493,6 +549,18 @@ class VectorStoreManager:
         if not self.store:
             logger.warning("벡터 스토어가 초기화되지 않았습니다")
             return []
+        
+        # top_k 기본값 설정
+        if top_k is None:
+            try:
+                config = get_database_config()
+                top_k = config.qdrant.search.get('default_top_k', 20)
+            except Exception:
+                top_k = 20
+        
+        # top_k가 여전히 None이면 기본값 사용 (타입 안전성)
+        if top_k is None:
+            top_k = 20
         
         # 필터 조건
         filter_conditions = {}

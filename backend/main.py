@@ -8,12 +8,42 @@ from typing import Dict, Any
 import signal
 import sys
 
-# 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+# 설정 시스템 임포트
+from app.core.config import (
+    get_config_manager, 
+    get_server_config, 
+    get_app_config,
+    ConfigManager
 )
+
+# 설정 관리자 초기화
+try:
+    config_manager = get_config_manager()
+    server_config = get_server_config()
+    app_config = get_app_config()
+    
+    # 로깅 설정 (설정 파일에서 로드)
+    log_level = getattr(logging, server_config.log_level.upper(), logging.INFO)
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+except Exception as e:
+    # 설정 로드 실패 시 기본 로깅 설정 사용
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    logging.error(f"설정 로드 실패, 기본 설정 사용: {e}")
+    
+    # 기본 설정값들 생성
+    from app.core.config import ServerConfig, AppConfig
+    server_config = ServerConfig()
+    app_config = AppConfig()
+    config_manager = None
 
 # Import routers
 from app.api.documents import router as documents_router
@@ -74,9 +104,10 @@ async def lifespan(app: FastAPI):
                 stop_background_worker()
                 
                 # 워커 태스크가 완전히 종료될 때까지 대기
+                timeout = server_config.timeout_graceful_shutdown if server_config else 2.0
                 if worker_task and not worker_task.done():
                     try:
-                        await asyncio.wait_for(worker_task, timeout=2.0)  # 타임아웃 단축
+                        await asyncio.wait_for(worker_task, timeout=timeout)  # 설정에서 타임아웃 로드
                     except (asyncio.TimeoutError, asyncio.CancelledError):
                         if worker_task and not worker_task.done():
                             worker_task.cancel()
@@ -100,10 +131,11 @@ async def lifespan(app: FastAPI):
         
         logging.info("🏁 애플리케이션 종료 완료")
 
+# FastAPI 앱 생성 (설정에서 로드)
 app = FastAPI(
-    title="RAG System API",
+    title=app_config.title,
     lifespan=lifespan,  # lifespan 이벤트 핸들러 등록
-    description="""
+    description=app_config.description or """
     📚 Retrieval-Augmented Generation System
     
     문서 업로드, 파싱, 벡터 검색을 통한 질의응답 시스템
@@ -118,46 +150,61 @@ app = FastAPI(
     지원 파일 형식:
     PDF, DOCX, XLSX, PPTX, HTML, Markdown, TXT, CSV
     """,
-    version="1.0.0",
-    contact={
+    version=app_config.version,
+    contact=app_config.contact or {
         "name": "API Support",
         "email": "js_kim@dfocus.net"
     },
-    license_info={
+    license_info=app_config.license_info or {
         "name": "MIT License",
         "url": "https://opensource.org/licenses/MIT"
     }
 )
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure properly for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS middleware (설정에서 로드)
+if config_manager and config_manager.cors:
+    cors_config = config_manager.cors
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_config.allow_origins,
+        allow_credentials=cors_config.allow_credentials,
+        allow_methods=cors_config.allow_methods,
+        allow_headers=cors_config.allow_headers,
+    )
+else:
+    # 기본 CORS 설정
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Configure properly for production
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
-# Tags metadata for OpenAPI documentation
-tags_metadata = [
-    {
-        "name": "Root",
-        "description": "시스템 기본 정보 및 헬스 체크"
-    },
-    {
-        "name": "documents", 
-        "description": "📚 동기 문서 관리 - 업로드, 파싱, 크롤링 (기존 방식)"
-    },
-    {
-        "name": "비동기 문서 처리",
-        "description": "⚡ 비동기 문서 처리 - 백그라운드 작업, 실시간 상태 업데이트"
-    },
-    {
-        "name": "WebSocket",
-        "description": "🔄 실시간 통신 - 작업 상태 실시간 업데이트"
-    }
-]
+# Tags metadata for OpenAPI documentation (설정에서 로드)
+if config_manager and config_manager.tags_metadata:
+    tags_metadata = config_manager.tags_metadata
+else:
+    # 기본 태그 메타데이터
+    tags_metadata = [
+        {
+            "name": "Root",
+            "description": "시스템 기본 정보 및 헬스 체크"
+        },
+        {
+            "name": "documents", 
+            "description": "📚 동기 문서 관리 - 업로드, 파싱, 크롤링 (기존 방식)"
+        },
+        {
+            "name": "비동기 문서 처리",
+            "description": "⚡ 비동기 문서 처리 - 백그라운드 작업, 실시간 상태 업데이트"
+        },
+        {
+            "name": "WebSocket",
+            "description": "🔄 실시간 통신 - 작업 상태 실시간 업데이트"
+        }
+    ]
 
 # Add tags metadata to FastAPI app
 app.openapi_tags = tags_metadata
@@ -288,13 +335,13 @@ if __name__ == "__main__":
         signal.signal(signal.SIGBREAK, signal_handler)
     
     try:
-        # Uvicorn 서버 설정 - 더 공격적인 종료 옵션
+        # Uvicorn 서버 설정 (설정에서 로드)
         config = uvicorn.Config(
             app=app, 
-            host="127.0.0.1", 
-            port=8099,
-            loop="asyncio",
-            log_level="info"
+            host=server_config.host, 
+            port=server_config.port,
+            loop=server_config.loop,
+            log_level=server_config.log_level
         )
         server = uvicorn.Server(config)
         

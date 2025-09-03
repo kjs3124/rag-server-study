@@ -6,14 +6,18 @@
 import logging
 import asyncio
 import hashlib
-from typing import List, Dict, Optional, Tuple, Union, Any
+from typing import List, Dict, Optional, Tuple, Union, Any, TYPE_CHECKING, cast
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import torch
 
+if TYPE_CHECKING:
+    from ..core.config import EmbeddingModelConfig
+
 from ..services.parsers.base import DocumentChunk
 from ..services.language_detector import language_detector
 from ..utils.memory import memory_manager
+from ..core.config import get_embedding_config
 
 logger = logging.getLogger(__name__)
 
@@ -29,33 +33,45 @@ class AdaptiveEmbeddingService:
     """
     
     def __init__(self):
-        # 지원 모델 정의
-        self.models_config = {
-            'bge-m3': {
-                'model_name': 'BAAI/bge-m3',
-                'description': 'BGE-M3 - CJK 언어 특화 (한국어, 중국어, 일본어)',
-                'dimension': 1024,
-                'max_seq_length': 8192,
-                'best_for': ['ko', 'ja', 'zh', 'zh-cn', 'zh-tw'],
-                'memory_usage_mb': 2400
-            },
-            'multilingual-e5-large': {
-                'model_name': 'intfloat/multilingual-e5-large',
-                'description': 'Multilingual-E5-Large - 범용 다국어 모델',
-                'dimension': 1024,
-                'max_seq_length': 512,
-                'best_for': ['en', 'mixed'],
-                'memory_usage_mb': 1400
+        # 설정 로드
+        try:
+            self.config = get_embedding_config()
+            # 타입 안전성을 위한 명시적 선언 (타입 캐스팅)
+            self.models_config: Dict[str, Union['EmbeddingModelConfig', Dict[str, Any]]] = cast(
+                Dict[str, Union['EmbeddingModelConfig', Dict[str, Any]]], self.config.models
+            )
+            self.cache_enabled = self.config.cache.enabled
+            self.max_cache_size = self.config.cache.max_size
+        except Exception as e:
+            logger.error(f"임베딩 설정 로드 실패, 기본값 사용: {e}")
+            # 기본 설정값 사용 - 타입 안전성을 위한 명시적 선언
+            self.models_config: Dict[str, Union['EmbeddingModelConfig', Dict[str, Any]]] = {
+                'bge-m3': {
+                    'model_name': 'BAAI/bge-m3',
+                    'description': 'BGE-M3 - CJK 언어 특화 (한국어, 중국어, 일본어)',
+                    'dimension': 1024,
+                    'max_seq_length': 8192,
+                    'best_for': ['ko', 'ja', 'zh', 'zh-cn', 'zh-tw'],
+                    'memory_usage_mb': 2400
+                },
+                'multilingual-e5-large': {
+                    'model_name': 'intfloat/multilingual-e5-large',
+                    'description': 'Multilingual-E5-Large - 범용 다국어 모델',
+                    'dimension': 1024,
+                    'max_seq_length': 512,
+                    'best_for': ['en', 'mixed'],
+                    'memory_usage_mb': 1400
+                }
             }
-        }
+            self.cache_enabled = True
+            self.max_cache_size = 1000
+            self.config = None
         
         # 로드된 모델 캐시
         self._loaded_models: Dict[str, SentenceTransformer] = {}
         
         # 임베딩 캐시 (선택적)
         self._embedding_cache: Dict[str, np.ndarray] = {}
-        self.cache_enabled = True
-        self.max_cache_size = 1000
         
         # GPU 사용 설정
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -78,14 +94,19 @@ class AdaptiveEmbeddingService:
             logger.info(f"임베딩 모델 로드 중: {model_key}")
             
             config = self.models_config[model_key]
-            model_name = config['model_name']
+            # 타입 안전 헬퍼 함수 사용
+            model_name = _get_model_attr(config, 'model_name', 'unknown')
+            max_seq_length = _get_model_attr(config, 'max_seq_length', 512)
+            
+            if model_name == 'unknown':
+                raise ValueError(f"모델 이름을 찾을 수 없습니다: {model_key}")
             
             try:
                 # 모델 로드
                 model = SentenceTransformer(model_name, device=self.device)
                 
                 # 모델 설정 최적화
-                model.max_seq_length = config['max_seq_length']
+                model.max_seq_length = max_seq_length
                 
                 self._loaded_models[model_key] = model
                 
@@ -110,6 +131,33 @@ class AdaptiveEmbeddingService:
             str: 선택된 모델 키
         """
         return language_summary.get('recommended_model', 'multilingual-e5-large')
+    
+    def _select_model_by_language(self, detected_lang: Optional[str]) -> str:
+        """
+        감지된 언어를 기반으로 모델 선택
+        
+        Args:
+            detected_lang: 감지된 언어 코드 (None 가능)
+            
+        Returns:
+            str: 선택된 모델 키
+        """
+        if not detected_lang:
+            return 'multilingual-e5-large'
+        if self.config and hasattr(self.config, 'language_model_mapping'):
+            # 설정에서 언어별 모델 매핑 확인
+            for model_key, model_config in self.models_config.items():
+                # 타입 안전 헬퍼 함수 사용
+                best_for = _get_model_attr(model_config, 'best_for', [])
+                
+                if detected_lang in best_for:
+                    return model_key
+        
+        # 기본 로직 (fallback)
+        if detected_lang in ['ko', 'ja', 'zh']:
+            return 'bge-m3'
+        else:
+            return 'multilingual-e5-large'
     
     def _get_cache_key(self, text: str, model_key: str) -> str:
         """
@@ -155,10 +203,7 @@ class AdaptiveEmbeddingService:
         if not model_key:
             # 언어 감지 기반 모델 선택
             detected_lang = language_detector.detect_language(text)
-            if detected_lang in ['ko', 'ja', 'zh']:
-                model_key = 'bge-m3'
-            else:
-                model_key = 'multilingual-e5-large'
+            model_key = self._select_model_by_language(detected_lang)
         
         # 캐시 확인
         cache_key = None
@@ -174,7 +219,10 @@ class AdaptiveEmbeddingService:
         try:
             # 텍스트 전처리
             text = text.strip()
-            max_length = self.models_config[model_key]['max_seq_length']
+            config = self.models_config[model_key]
+            # 타입 안전 헬퍼 함수 사용
+            max_length = _get_model_attr(config, 'max_seq_length', 512)
+                
             if len(text) > max_length:
                 text = text[:max_length]
                 logger.debug(f"텍스트 길이 초과로 자름: {len(text)} -> {max_length}")
@@ -195,20 +243,28 @@ class AdaptiveEmbeddingService:
     
     async def embed_chunks(self, chunks: List[DocumentChunk], 
                           model_key: Optional[str] = None,
-                          batch_size: int = 32) -> List[Tuple[str, np.ndarray]]:
+                          batch_size: Optional[int] = None) -> List[Tuple[str, np.ndarray]]:
         """
         문서 청크들의 배치 임베딩
         
         Args:
             chunks: 문서 청크 리스트
             model_key: 사용할 모델 (None이면 자동 선택)
-            batch_size: 배치 크기
+            batch_size: 배치 크기 (None이면 설정에서 로드)
             
         Returns:
             List[Tuple[str, np.ndarray]]: [(chunk_id, embedding), ...]
         """
         if not chunks:
             return []
+        
+        # 배치 크기 설정
+        if batch_size is None:
+            batch_size = getattr(self.config, 'batch_size', 32) if self.config else 32
+            
+        # batch_size가 여전히 None이면 기본값 사용
+        if batch_size is None:
+            batch_size = 32
             
         # 모델 자동 선택
         if not model_key:
@@ -219,7 +275,9 @@ class AdaptiveEmbeddingService:
         logger.info(f"청크 임베딩 시작: {len(chunks)}개 청크, 모델: {model_key}, 배치크기: {batch_size}")
         
         model = await self.get_model(model_key)
-        max_length = self.models_config[model_key]['max_seq_length']
+        config = self.models_config[model_key]
+        # 타입 안전 헬퍼 함수 사용
+        max_length = _get_model_attr(config, 'max_seq_length', 512)
         
         results = []
         
@@ -262,7 +320,8 @@ class AdaptiveEmbeddingService:
                 logger.debug(f"임베딩 진행: {processed}/{len(chunks)} ({processed/len(chunks)*100:.1f}%)")
                 
             except Exception as e:
-                logger.error(f"배치 임베딩 실패 (배치 {i//batch_size + 1}): {e}")
+                batch_num = (i // batch_size) + 1 if batch_size > 0 else 1
+                logger.error(f"배치 임베딩 실패 (배치 {batch_num}): {e}")
                 # 개별 처리로 fallback
                 for chunk in batch_chunks:
                     try:
@@ -289,10 +348,7 @@ class AdaptiveEmbeddingService:
         if not model_key:
             # 쿼리 언어 감지 후 모델 선택
             detected_lang = language_detector.detect_language(query)
-            if detected_lang in ['ko', 'ja', 'zh']:
-                model_key = 'bge-m3'
-            else:
-                model_key = 'multilingual-e5-large'
+            model_key = self._select_model_by_language(detected_lang)
         
         return await self.embed_text(query, model_key)
     
@@ -309,7 +365,18 @@ class AdaptiveEmbeddingService:
         if model_key not in self.models_config:
             return {}
             
-        config = self.models_config[model_key].copy()
+        config_obj = self.models_config[model_key]
+        
+        # 타입 안전 헬퍼 함수를 사용한 안전한 딕셔너리 변환
+        config = {
+            'model_name': _get_model_attr(config_obj, 'model_name', 'unknown'),
+            'description': _get_model_attr(config_obj, 'description', 'Unknown model'),
+            'dimension': _get_model_attr(config_obj, 'dimension', 1024),
+            'max_seq_length': _get_model_attr(config_obj, 'max_seq_length', 512),
+            'best_for': _get_model_attr(config_obj, 'best_for', []),
+            'memory_usage_mb': _get_model_attr(config_obj, 'memory_usage_mb', 0)
+        }
+            
         config['is_loaded'] = model_key in self._loaded_models
         
         if config['is_loaded']:
@@ -355,6 +422,20 @@ class AdaptiveEmbeddingService:
                 torch.cuda.empty_cache()
             logger.info(f"모델 언로드 완료: {model_key}")
 
+# 타입 안전 헬퍼 함수들
+def _get_model_attr(config: Union['EmbeddingModelConfig', Dict[str, Any]], attr: str, default: Any) -> Any:
+    """모델 설정에서 안전하게 속성 값 추출"""
+    if hasattr(config, attr):
+        return getattr(config, attr)
+    elif isinstance(config, dict):
+        return config.get(attr, default)
+    else:
+        return default
+
+def _get_model_dimension(config: Union['EmbeddingModelConfig', Dict[str, Any]]) -> int:
+    """모델 설정에서 dimension 값 추출"""
+    return _get_model_attr(config, 'dimension', 1024)
+
 # 글로벌 임베딩 서비스 인스턴스
 embedding_service = AdaptiveEmbeddingService()
 
@@ -381,7 +462,7 @@ async def embed_document_chunks(chunks: List[DocumentChunk]) -> Tuple[List[Tuple
         'model_used': language_summary['recommended_model'],
         'total_chunks': len(chunks),
         'successful_embeddings': len(embeddings),
-        'embedding_dimension': embedding_service.models_config[language_summary['recommended_model']]['dimension']
+        'embedding_dimension': _get_model_dimension(embedding_service.models_config[language_summary['recommended_model']])
     }
     
     return embeddings, metadata

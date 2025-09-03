@@ -1,0 +1,39 @@
+# 임베딩 모델 설정
+models:
+  bge-m3:
+    model_name: "BAAI/bge-m3"
+    description: "BGE-M3 - CJK 언어 특화 (한국어, 중국어, 일본어)"
+    dimension: 1024
+    max_seq_length: 8192
+    best_for: ["ko", "ja", "zh", "zh-cn", "zh-tw"]
+    memory_usage_mb: 2400
+  
+  multilingual-e5-large:
+    model_name: "intfloat/multilingual-e5-large"
+    description: "Multilingual-E5-Large - 범용 다국어 모델"
+    dimension: 1024
+    max_seq_length: 512
+    best_for: ["en", "mixed"]
+    memory_usage_mb: 1400
+
+# 언어별 모델 선택 규칙
+language_model_mapping:
+  korean_threshold: 0.6  # 한국어 비율이 60% 이상이면 BGE-M3 사용
+  cjk_threshold: 0.4     # CJK 언어가 40% 이상이면 BGE-M3 사용
+  english_threshold: 0.6 # 영어 비율이 60% 이상이면 E5-Large 사용
+  default_model: "multilingual-e5-large"
+
+# 임베딩 처리 설정
+processing:
+  batch_size: 32
+  cache_enabled: true
+  max_cache_size: 1000
+  cache_cleanup_threshold: 100  # 캐시 정리 시 제거할 항목 수
+  
+  # GPU 설정
+  device: "auto"  # auto, cpu, cuda
+  
+  # 성능 최적화
+  normalize_embeddings: true
+  show_progress_bar: false
+  convert_to_numpy: true

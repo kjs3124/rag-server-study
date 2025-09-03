@@ -1,0 +1,50 @@
+# Qdrant 벡터 데이터베이스 설정
+qdrant:
+  # 연결 설정
+  connection:
+    url: "http://localhost:6333"
+    api_key: null  # 환경변수 QDRANT_API_KEY에서 가져옴
+    timeout: 30
+    prefer_grpc: false  # HTTP API 사용
+    env_url_key: "QDRANT_URL"  # URL 환경변수 키
+    env_api_key_key: "QDRANT_API_KEY"  # API 키 환경변수 키
+    
+  # 컬렉션 설정
+  collections:
+    default_name: "documents"
+    default_dimension: 1024
+    distance_metric: "COSINE"
+    
+  # 검색 설정
+  search:
+    default_top_k: 20
+    max_top_k: 100
+    similarity_threshold: 0.7
+    
+  # 벡터 처리 설정
+  vector_processing:
+    content_preview_length: 500  # 검색 결과 표시용 콘텐츠 길이
+    hash_bytes: 8  # 해시 ID 생성용 바이트 수
+    max_point_id: 9223372036854775807  # 2^63 - 1
+    
+  # 배치 처리 설정
+  batch:
+    insert_batch_size: 1000
+    scroll_limit: 1000
+    wait_for_completion: true
+
+# PostgreSQL 설정 (대안)
+postgresql:
+  enabled: false
+  connection:
+    host: "localhost"
+    port: 5432
+    database: "rag_system"
+    username: null  # 환경변수에서 가져옴
+    password: null  # 환경변수에서 가져옴
+    
+  # pgvector 설정
+  pgvector:
+    extension_name: "vector"
+    index_type: "ivfflat"  # ivfflat, hnsw
+    lists: 100  # IVF 클러스터 수

@@ -39,13 +39,24 @@ except ImportError:
     TRAFILATURA_AVAILABLE = False
 
 from .base import BaseDocumentParser, ParsedDocument, DocumentChunk
+from ...core.config import get_crawler_config
 
 class WebCrawlerParser(BaseDocumentParser):
     """웹 크롤링 파서"""
     
-    def __init__(self, delay: float = 1.0):
-        self.delay = delay  # 요청 간 지연시간
-        self._cancelled = False  # 중단 플래그
+    def __init__(self, delay: Optional[float] = None):
+        # 설정에서 로드
+        try:
+            crawler_config = get_crawler_config()
+            self.delay = delay or crawler_config.defaults.get('delay', 1.0)
+            self._cancelled = False  # 중단 플래그
+            self.config = crawler_config
+        except Exception as e:
+            # 설정 로드 실패 시 기본값 사용
+            self.delay = delay or 1.0
+            self._cancelled = False
+            self.config = None
+            print(f"크롤러 설정 로드 실패, 기본값 사용: {e}")
         
     def _should_continue(self) -> bool:
         """크롤링 계속 여부 확인"""
@@ -138,9 +149,13 @@ class WebCrawlerParser(BaseDocumentParser):
     async def _crawl_with_trafilatura(self, url: str, chunk_size: int = 1000, chunk_overlap: Optional[int] = None, max_depth: int = 1, same_domain: bool = True, **kwargs) -> Tuple[List[DocumentChunk], List[str]]:
         """trafilatura를 사용한 고품질 텍스트 추출"""
         
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
+        # 설정에서 헤더 로드
+        if self.config:
+            headers = self.config.request.get('headers', {})
+        else:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
         
         import ssl
             
@@ -161,23 +176,43 @@ class WebCrawlerParser(BaseDocumentParser):
                 import configparser
                 config = configparser.ConfigParser()
                 
-                # trafilatura에서 요구하는 기본 설정값들 (완전한 DEFAULT 섹션)
-                config.set('DEFAULT', 'MAX_REDIRECTS', '0')
-                config.set('DEFAULT', 'DOWNLOAD_TIMEOUT', '30')
-                config.set('DEFAULT', 'MIN_FILE_SIZE', '10')
-                config.set('DEFAULT', 'MAX_FILE_SIZE', '20000000')
-                config.set('DEFAULT', 'SLEEP_TIME', '5')
-                config.set('DEFAULT', 'COOKIE', '')
-                config.set('DEFAULT', 'USER_AGENTS', '')
-                config.set('DEFAULT', 'MIN_EXTRACTED_SIZE', '250')
-                config.set('DEFAULT', 'MIN_OUTPUT_SIZE', '1')
-                config.set('DEFAULT', 'EXTRACTION_TIMEOUT', '30')
+                # 설정에서 trafilatura 옵션 로드
+                if self.config and self.config.trafilatura:
+                    trafilatura_settings = self.config.trafilatura
+                else:
+                    # 기본 설정값들
+                    trafilatura_settings = {
+                        'MAX_REDIRECTS': '0',
+                        'DOWNLOAD_TIMEOUT': '30',
+                        'MIN_FILE_SIZE': '10',
+                        'MAX_FILE_SIZE': '20000000',
+                        'SLEEP_TIME': '5',
+                        'COOKIE': '',
+                        'USER_AGENTS': '',
+                        'MIN_EXTRACTED_SIZE': '250',
+                        'MIN_OUTPUT_SIZE': '1',
+                        'EXTRACTION_TIMEOUT': '30'
+                    }
+                
+                # trafilatura 설정 적용
+                for key, value in trafilatura_settings.items():
+                    config.set('DEFAULT', key, str(value))
                 
                 # trafilatura 크롤링 실행
                 from trafilatura.spider import focused_crawler
                 
+                # 설정에서 크롤링 제한 로드
+                if self.config and self.config.limits:
+                    url_multiplier = self.config.limits.get('url_multiplier', 10)
+                    max_urls_multi = self.config.limits.get('max_urls_multi_depth', 30)
+                    max_urls_single = self.config.limits.get('max_urls_single_depth', 1)
+                else:
+                    url_multiplier = 10
+                    max_urls_multi = 30
+                    max_urls_single = 1
+                    
                 # max_depth에 따른 크롤링 URL 개수 결정
-                max_urls = min(max_depth * 10, 30) if max_depth > 1 else 1
+                max_urls = min(max_depth * url_multiplier, max_urls_multi) if max_depth > 1 else max_urls_single
                 
                 if max_depth <= 1:
                     # 단일 페이지만 처리
@@ -278,7 +313,9 @@ class WebCrawlerParser(BaseDocumentParser):
         session.mount('https://', SSLNoRedirectAdapter())
         session.mount('http://', SSLNoRedirectAdapter())
         
-        response = session.get(url, headers=headers, timeout=10, verify=False, allow_redirects=False)
+        # 설정에서 타임아웃 로드
+        timeout = self.config.request.get('timeout', 10) if self.config else 10
+        response = session.get(url, headers=headers, timeout=timeout, verify=False, allow_redirects=False)
         response.raise_for_status()
         
         if BeautifulSoup_TYPE is None:
@@ -338,12 +375,17 @@ class WebCrawlerParser(BaseDocumentParser):
         if not HTML_SPLITTER_AVAILABLE or HTMLHeaderTextSplitter is None:
             raise ImportError("HTMLHeaderTextSplitter를 사용할 수 없습니다")
         
-        # HTML 헤더 기반 분할 설정
-        headers_to_split_on = [
-            ("h1", "Header 1"),
-            ("h2", "Header 2"), 
-            ("h3", "Header 3"),
-        ]
+        # 설정에서 HTML 헤더 분할 설정 로드
+        if self.config and self.config.html_parsing and 'headers_to_split' in self.config.html_parsing:
+            headers_config = self.config.html_parsing['headers_to_split']
+            headers_to_split_on = [(h['tag'], h['name']) for h in headers_config]
+        else:
+            # 기본 설정
+            headers_to_split_on = [
+                ("h1", "Header 1"),
+                ("h2", "Header 2"), 
+                ("h3", "Header 3"),
+            ]
         
         html_splitter = HTMLHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
         html_header_splits = html_splitter.split_text(html_content)
@@ -390,9 +432,20 @@ class WebCrawlerParser(BaseDocumentParser):
             except Exception as e:
                 print(f"HTML 헤더 청킹 실패: {e}, 일반 텍스트 청킹으로 폴백")
         
+        # 설정에서 trafilatura 추출 옵션 로드
+        if self.config and self.config.trafilatura:
+            include_comments = self.config.trafilatura.get('include_comments', False)
+            include_tables = self.config.trafilatura.get('include_tables', True)
+        else:
+            include_comments = False
+            include_tables = True
+            
         # 2차: trafilatura 텍스트 추출 + 커스텀 청킹
-        clean_text = trafilatura.extract(html_content, include_comments=False, include_tables=True)
-        if clean_text and len(clean_text) > 50:
+        clean_text = trafilatura.extract(html_content, include_comments=include_comments, include_tables=include_tables)
+        
+        # 설정에서 최소 콘텐츠 길이 로드
+        min_content_length = self.config.limits.get('content_min_length', 50) if self.config else 50
+        if clean_text and len(clean_text) > min_content_length:
             return self._create_chunks_from_text(clean_text, url, chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
         
         return []

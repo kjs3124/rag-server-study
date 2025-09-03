@@ -1,0 +1,50 @@
+# 서버 및 API 설정
+server:
+  host: "127.0.0.1"
+  port: 8099
+  log_level: "info"
+  loop: "asyncio"
+  timeout_graceful_shutdown: 2.0
+
+# FastAPI 애플리케이션 설정  
+app:
+  title: "RAG System API"
+  version: "1.0.0"
+  description: |
+    📚 Retrieval-Augmented Generation System
+    
+    문서 업로드, 파싱, 벡터 검색을 통한 질의응답 시스템
+    
+    주요 기능:
+    • 다양한 형식 문서 업로드 (PDF, DOCX, Excel, PPT 등)
+    • 웹 크롤링 및 콘텐츠 파싱
+    • 청킹 파라미터 사용자 정의
+    • 동기/비동기 처리 지원
+    • 실시간 작업 상태 추적
+    
+    지원 파일 형식:
+    PDF, DOCX, XLSX, PPTX, HTML, Markdown, TXT, CSV
+  contact:
+    name: "API Support"
+    email: "js_kim@dfocus.net"
+  license_info:
+    name: "MIT License"
+    url: "https://opensource.org/licenses/MIT"
+
+# CORS 설정
+cors:
+  allow_origins: ["*"]  # 프로덕션에서는 구체적인 도메인으로 변경 필요
+  allow_credentials: true
+  allow_methods: ["*"]
+  allow_headers: ["*"]
+
+# API 태그 메타데이터
+tags_metadata:
+  - name: "Root"
+    description: "시스템 기본 정보 및 헬스 체크"
+  - name: "documents"
+    description: "📚 동기 문서 관리 - 업로드, 파싱, 크롤링 (기존 방식)"
+  - name: "비동기 문서 처리"  
+    description: "⚡ 비동기 문서 처리 - 백그라운드 작업, 실시간 상태 업데이트"
+  - name: "WebSocket"
+    description: "🔄 실시간 통신 - 작업 상태 실시간 업데이트"
