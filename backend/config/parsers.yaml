@@ -25,6 +25,16 @@ parsers:
     schemes: ["http", "https", "ftp"]
     require_netloc: true
     fallback_parser: "WebCrawlerParser"
+  
+  # Swagger/OpenAPI URL 패턴
+  swagger_patterns:
+    - "/swagger"
+    - "/api-docs"
+    - "/openapi"
+    - "/v1/api-docs"
+    - "/v2/api-docs"
+    - "/v3/api-docs"
+    - "/rest/v1/api-docs"
 
 # 개별 파서 설정
 pdf_parser:
@@ -85,3 +95,11 @@ txt_parser:
 markdown_parser:
   preserve_code_blocks: true
   extract_links: false
+
+swagger_parser:
+  # 각 엔드포인트별로 청킹
+  chunk_by_endpoint: true
+  # 스키마 정보 포함
+  include_schemas: true
+  # 내부 서버용 SSL 검증 비활성화
+  verify_ssl: false

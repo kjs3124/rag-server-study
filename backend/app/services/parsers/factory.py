@@ -13,6 +13,7 @@ from .csv_parser import CSVParser
 from .pptx_parser import PPTXParser
 from .excel_parser import ExcelParser
 from .web_crawler import WebCrawlerParser
+from .swagger_parser import SwaggerParser
 from ...core.config import get_parsers_config
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class DocumentParserFactory:
         'PPTXParser': PPTXParser,
         'ExcelParser': ExcelParser,
         'WebCrawlerParser': WebCrawlerParser,
+        'SwaggerParser': SwaggerParser,
     }
     
     _parsers: Dict[str, Type[BaseDocumentParser]] = {}
@@ -102,7 +104,11 @@ class DocumentParserFactory:
         
         # URL인지 확인
         if cls._is_url(source):
-            return WebCrawlerParser()
+            # Swagger/OpenAPI URL 패턴 확인
+            if cls._is_swagger_url(source):
+                return SwaggerParser()
+            else:
+                return WebCrawlerParser()
         
         # 파일 확장자 기반 파서 선택
         ext = Path(source).suffix.lower()
@@ -134,6 +140,32 @@ class DocumentParserFactory:
             
             return scheme_valid and netloc_valid
         except:
+            return False
+    
+    @classmethod
+    def _is_swagger_url(cls, source: str) -> bool:
+        """Swagger/OpenAPI URL인지 확인"""
+        try:
+            # 설정에서 Swagger 패턴 로드 시도
+            try:
+                config = get_parsers_config()
+                swagger_patterns = config.parsers.get('swagger_patterns', [])
+            except Exception:
+                swagger_patterns = []
+            
+            # 기본 Swagger 패턴
+            default_patterns = [
+                '/swagger', '/api-docs', '/openapi',
+                '/v1/api-docs', '/v2/api-docs', '/v3/api-docs',
+                '/rest/v1/api-docs'
+            ]
+            
+            patterns = swagger_patterns if swagger_patterns else default_patterns
+            source_lower = source.lower()
+            
+            return any(pattern in source_lower for pattern in patterns)
+        except Exception as e:
+            logger.warning(f"Swagger URL 패턴 확인 실패: {e}")
             return False
     
     @classmethod

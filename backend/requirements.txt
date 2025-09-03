@@ -10,11 +10,12 @@ pgvector==0.4.1
 
 # AI/ML
 openai==1.63.0
-langchain==0.3.13
+langchain==0.3.27
 langchain-openai==0.2.14
-langchain-text-splitters==0.3.8
-langchain-community==0.3.22
+langchain-text-splitters==0.3.11
+langchain-community==0.3.29
 sentence-transformers==5.1.0
+llama-index-readers-openapi
 
 # Document Processing
 PyMuPDF==1.26.3
@@ -28,7 +29,7 @@ polars==1.32.3
 
 # Web Scraping & Crawling
 beautifulsoup4==4.13.4
-requests==2.32.3
+requests==2.32.5
 nest-asyncio==1.6.0
 trafilatura==2.0.0
 markdownify==1.2.0
