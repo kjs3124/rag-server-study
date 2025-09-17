@@ -98,20 +98,38 @@ class DocumentProcessor:
             ParsedDocument: 파싱된 웹 문서
         """
         try:
-            crawled_content = self.web_crawler.parse(
-                url, 
-                max_depth=max_depth, 
-                same_domain=same_domain,
-                **kwargs
-            )
+            # 파서 팩토리를 통해 적절한 파서 선택
+            parser = self.parser_factory.get_parser(url)
+            parser_name = parser.__class__.__name__
             
-            logger.info(f"URL 크롤링 완료: {url} ({len(crawled_content.chunks)}개 청크)")
-            return crawled_content
+            logger.info(f"URL 처리 시작: {url} (파서: {parser_name})")
+            
+            # Swagger 파서인 경우 특별 처리
+            if parser_name == 'SwaggerParser':
+                parsed_content = parser.parse(url, **kwargs)
+            else:
+                # 웹 크롤러인 경우 기존 로직 사용
+                parsed_content = parser.parse(
+                    url, 
+                    max_depth=max_depth, 
+                    same_domain=same_domain,
+                    **kwargs
+                )
+            
+            logger.info(f"URL 처리 완료: {url} ({len(parsed_content.chunks)}개 청크, 파서: {parser_name})")
+            return parsed_content
             
         except Exception as e:
+            # 선택된 파서에 따라 파서 이름 결정
+            try:
+                parser = self.parser_factory.get_parser(url)
+                parser_name = parser.__class__.__name__
+            except:
+                parser_name = "UnknownParser"
+                
             error_logger.log_processing_error(
                 file_path=url,
-                parser_name="WebCrawlerParser",
+                parser_name=parser_name,
                 error=e,
                 file_size=None
             )

@@ -22,7 +22,13 @@
       "WebSearch",
       "mcp__wonderwhy-er-desktop-commander__read_multiple_files",
       "Bash(npx tsc:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(where claude)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(tasklist)",
+      "Bash(find:*)",
+      "Read(//c/Users/js_kim/AppData/Roaming/Python/Python313/site-packages/llama_index/readers/openapi/**)"
     ],
     "deny": [],
     "ask": [],

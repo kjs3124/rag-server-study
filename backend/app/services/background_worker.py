@@ -231,13 +231,9 @@ class BackgroundWorker:
         # 진행상황 업데이트: 크롤링 시작
         await task_notifier.notify_progress(task_id, 10, f"웹 페이지 크롤링을 시작합니다: {url}")
         
-        # 웹 크롤러 파서 사용
-        from ..services.parsers.web_crawler import WebCrawlerParser
-        crawler = WebCrawlerParser(delay=1.0)
-        
-        # 백그라운드 워커가 중단되면 크롤러도 취소
-        if not self.running:
-            crawler.cancel()
+        # DocumentProcessor를 통한 파서 선택 사용
+        from ..services.document_processor import DocumentProcessor
+        processor = DocumentProcessor()
         
         # 크롤링 실행 (동기 함수를 비동기로 실행)
         loop = asyncio.get_event_loop()
@@ -260,17 +256,17 @@ class BackgroundWorker:
             return
         
         try:
-            def crawl_with_cancel_check():
+            def process_url_with_cancel_check():
                 # 크롤링 시작 전 취소 체크
                 if not self.running:
-                    crawler.cancel()
                     raise asyncio.CancelledError("백그라운드 워커 중단")
-                return crawler.parse(url, chunk_size, chunk_overlap, max_depth, same_domain)
+                # DocumentProcessor를 통해 적절한 파서 선택하여 처리
+                return processor.process_url(url, max_depth, same_domain, 
+                                           chunk_size=chunk_size, chunk_overlap=chunk_overlap)
                 
-            parsed_doc = await loop.run_in_executor(None, crawl_with_cancel_check)
+            parsed_doc = await loop.run_in_executor(None, process_url_with_cancel_check)
         except (KeyboardInterrupt, asyncio.CancelledError):
             logger.info("📤 웹 크롤링 중단됨")
-            crawler.cancel()  # 크롤러 명시적 취소
             await task_notifier.notify_failed(task_id, "사용자에 의해 중단됨")
             raise
         
