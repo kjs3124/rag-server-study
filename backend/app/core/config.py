@@ -120,6 +120,18 @@ class LoggingConfig:
     directories: Dict[str, Any] = field(default_factory=dict)
     monitoring: Dict[str, Any] = field(default_factory=dict)
 
+@dataclass
+class LLMConfig:
+    """LLM API 설정"""
+    provider: str = "openai"
+    api_key: str = ""
+    model: str = "gpt-4o-mini"
+    temperature: float = 0.0
+    max_tokens: int = 2000
+    timeout: int = 30
+    retry_max_attempts: int = 3
+    retry_delay: float = 1.0
+
 class ConfigManager:
     """통합 설정 관리자"""
     
@@ -148,6 +160,7 @@ class ConfigManager:
         self.crawler: Optional[CrawlerConfig] = None
         self.parsers: Optional[ParsersConfig] = None
         self.logging: Optional[LoggingConfig] = None
+        self.llm: Optional[LLMConfig] = None
         
         # 태그 메타데이터 (YAML에서 로드)
         self.tags_metadata: List[Dict[str, str]] = []
@@ -167,11 +180,12 @@ class ConfigManager:
             # 각 설정 파일 로드
             config_files = {
                 'server': 'server.yaml',
-                'embedding': 'embedding.yaml', 
+                'embedding': 'embedding.yaml',
                 'database': 'database.yaml',
                 'crawler': 'crawler.yaml',
                 'parsers': 'parsers.yaml',
-                'logging': 'logging.yaml'
+                'logging': 'logging.yaml',
+                'llm': 'llm.yaml'
             }
             
             for config_name, filename in config_files.items():
@@ -289,6 +303,9 @@ class ConfigManager:
                     directories=config_data.get('directories', {}),
                     monitoring=config_data.get('monitoring', {})
                 )
+
+            elif config_name == 'llm':
+                self.llm = LLMConfig(**config_data.get('llm', {}))
                 
         except Exception as e:
             logger.error(f"설정 파싱 실패 ({config_name}): {e}")
@@ -303,15 +320,21 @@ class ConfigManager:
                 self.server.port = int(os.getenv("SERVER_PORT", str(self.server.port)))
                 self.server.log_level = os.getenv("LOG_LEVEL", self.server.log_level)
             
-            # 데이터베이스 설정 오버라이드  
+            # 데이터베이스 설정 오버라이드
             if self.database and self.database.qdrant:
                 self.database.qdrant.connection["url"] = os.getenv(
-                    "QDRANT_URL", 
+                    "QDRANT_URL",
                     self.database.qdrant.connection.get("url", "http://localhost:6333")
                 )
                 api_key = os.getenv("QDRANT_API_KEY")
                 if api_key:
                     self.database.qdrant.connection["api_key"] = api_key
+
+            # LLM 설정 오버라이드
+            if self.llm:
+                self.llm.api_key = os.getenv("OPENAI_API_KEY", self.llm.api_key)
+                self.llm.model = os.getenv("LLM_MODEL", self.llm.model)
+                self.llm.provider = os.getenv("LLM_PROVIDER", self.llm.provider)
                     
             logger.debug("환경변수 오버라이드 적용 완료")
             
@@ -331,8 +354,9 @@ class ConfigManager:
         """
         try:
             keys = key_path.split('.')
-            
+
             # 첫 번째 키로 설정 객체 찾기
+            obj: Any
             if keys[0] == 'server' and self.server:
                 obj = self.server
             elif keys[0] == 'app' and self.app:
@@ -349,6 +373,8 @@ class ConfigManager:
                 obj = self.parsers
             elif keys[0] == 'logging' and self.logging:
                 obj = self.logging
+            elif keys[0] == 'llm' and self.llm:
+                obj = self.llm
             else:
                 return default
             
@@ -414,7 +440,8 @@ class ConfigManager:
                 'database': self.database is not None,
                 'crawler': self.crawler is not None,
                 'parsers': self.parsers is not None,
-                'logging': self.logging is not None
+                'logging': self.logging is not None,
+                'llm': self.llm is not None
             },
             'config_files_found': len(self._raw_configs),
             'validation_warnings': len(self.validate_configs())
@@ -470,3 +497,10 @@ def get_parsers_config() -> ParsersConfig:
     if not manager.parsers:
         raise RuntimeError("파서 설정이 로드되지 않았습니다")
     return manager.parsers
+
+def get_llm_config() -> LLMConfig:
+    """LLM 설정 반환"""
+    manager = get_config_manager()
+    if not manager.llm:
+        raise RuntimeError("LLM 설정이 로드되지 않았습니다")
+    return manager.llm

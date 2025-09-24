@@ -1,0 +1,21 @@
+# LLM API 설정
+# 환경변수로 오버라이드 가능: OPENAI_API_KEY, LLM_MODEL, LLM_PROVIDER
+
+llm:
+  # API 제공자 (openai, azure, anthropic 등)
+  provider: "openai"
+
+  # API 키 (환경변수 OPENAI_API_KEY로 설정 권장)
+  api_key: ""
+
+  # 사용할 모델
+  model: "gpt-4o-mini"
+
+  # 생성 파라미터
+  temperature: 0.0
+  max_tokens: 2000
+
+  # API 요청 설정
+  timeout: 30
+  retry_max_attempts: 3
+  retry_delay: 1.0

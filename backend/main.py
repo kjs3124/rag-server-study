@@ -75,6 +75,15 @@ async def lifespan(app: FastAPI):
             logging.info("✅ RAG 서비스 초기화 완료")
         else:
             logging.warning("⚠️ RAG 서비스 초기화 실패 - 벡터 검색 비활성화")
+
+        # Self-RAG 서비스 초기화
+        from app.services import self_rag as self_rag_module
+        from app.services.self_rag import SelfRAGService
+        from app.services.vector_store import vector_store
+        from app.services.embedding import embedding_service
+
+        self_rag_module.self_rag_service = SelfRAGService(rag_service, vector_store, embedding_service)
+        logging.info("✅ Self-RAG 서비스 초기화 완료")
         
         # 백그라운드 워커 시작
         from app.services.background_worker import start_background_worker

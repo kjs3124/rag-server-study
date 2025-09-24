@@ -461,7 +461,8 @@ class VectorStoreManager:
                 vector_metadata = {
                     'document_id': document_id,
                     'chunk_id': chunk_id,
-                    'content': chunk.content[:content_limit],  # 검색 결과 표시용 (길이 제한)
+                    'content': chunk.content,  # 전체 내용
+                    'content_preview': chunk.content[:content_limit],  # 검색 결과 표시용 미리보기
                     'page_number': chunk.page_number,
                     'section_title': chunk.section_title or "",
                     'chunk_index': chunk.metadata.get('index', 0),

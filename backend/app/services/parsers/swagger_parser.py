@@ -13,6 +13,7 @@ import logging
 import requests
 import tempfile
 import os
+import json
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,7 @@ class SwaggerParser(BaseDocumentParser):
                     "chunk_size": len(doc.text)
                 },
                 chunk_id=f"swagger_{i:04d}",
-                section_title=endpoint_info.get("title", f"API Endpoint {i+1}")
+                section_title=f"{endpoint_info.get('method', 'GET')} {endpoint_info.get('path', f'API Endpoint {i+1}')}"
             )
             chunks.append(chunk)
         

@@ -756,3 +756,160 @@ async def get_recent_errors(hours: int = Query(24, ge=1, le=168, description="�
             error_type="system_error",
             data={"detail": str(e)}
         )
+
+# Self-RAG 관련 모델들
+class SelfRAGQueryRequest(BaseModel):
+    """Self-RAG 질의응답 요청 모델"""
+
+    query: str = Field(description="질문 내용", examples=["이 문서의 주요 내용은 무엇인가요?"], min_length=1)
+    top_k: Optional[int] = Field(5, description="반환할 최대 청크 수", ge=1, le=20)
+    reflection_mode: str = Field("adaptive", description="Reflection 모드", pattern="^(adaptive|always|never)$")
+    reflection_weights: Optional[dict[str, float]] = Field(
+        None,
+        description="Reflection token 가중치",
+        example={"relevance": 1.0, "support": 1.0, "usefulness": 0.5}
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "query": "프로젝트의 주요 기능은 무엇인가요?",
+                "top_k": 5,
+                "reflection_mode": "adaptive",
+                "reflection_weights": {
+                    "relevance": 1.0,
+                    "support": 1.0,
+                    "usefulness": 0.5
+                }
+            }
+        }
+
+@router.post("/self-rag/query",
+    summary="🔮 Self-RAG 기반 질의응답",
+    description="""
+    Self-Reflective Retrieval-Augmented Generation을 통한 고급 질의응답
+
+    Self-RAG 특징:
+    • On-demand retrieval: 필요할 때만 검색 수행
+    • Reflection tokens: 자체 평가를 통한 품질 제어
+    • Adaptive generation: 상황에 맞는 적응형 답변 생성
+
+    Reflection Tokens:
+    • Retrieve: 검색 필요성 (yes/no/continue)
+    • IsRelevant: 문서 관련성 (relevant/irrelevant)
+    • IsSupported: 답변 지원도 (fully/partially/no support)
+    • IsUseful: 답변 유용성 (1-5 점수)
+
+    Reflection 모드:
+    • adaptive: 자동으로 최적 전략 선택
+    • always: 항상 reflection 수행
+    • never: reflection 없이 기본 RAG 사용
+    """,
+    response_description="Self-RAG 기반 답변과 reflection token 분석 결과 반환")
+async def self_rag_query(request: SelfRAGQueryRequest,
+                        similarity_threshold: float = Query(0.1, ge=0.0, le=1.0, description="유사도 임계값"),
+                        document_filter: Optional[str] = Query(None, description="특정 문서 ID로 검색 제한")):
+    """Self-RAG 기반 질의응답"""
+
+    if not documents_db:
+        return ErrorResponse(
+            message="업로드된 문서가 없음",
+            error_type="validation_error",
+            data={"detail": "질의응답을 위한 문서가 없습니다"}
+        )
+
+    try:
+        # Self-RAG 서비스 확인
+        from app.services.self_rag import self_rag_service
+        if not self_rag_service:
+            return ErrorResponse(
+                message="Self-RAG 서비스 초기화 오류",
+                error_type="service_error",
+                data={"detail": "Self-RAG 서비스가 초기화되지 않았습니다"}
+            )
+
+        # reflection weights 설정
+        if request.reflection_weights:
+            self_rag_service.update_reflection_weights(request.reflection_weights)
+
+        # Self-RAG 검색 및 답변 생성
+        result = await self_rag_service.self_rag_query(
+            query=request.query,
+            top_k=request.top_k,
+            document_filter=document_filter,
+            reflection_mode=request.reflection_mode
+        )
+
+        # 로깅
+        error_logger.log_user_activity(
+            activity_type="self_rag_query",
+            file_path="self_rag_query",
+            operation_details={
+                "query": request.query,
+                "mode": request.reflection_mode,
+                "top_k": request.top_k,
+                "candidates_count": len(result.get('candidates', [])),
+                "retrieve_decision": result.get('retrieve_decision')
+            }
+        )
+
+        return SuccessResponse(
+            message="Self-RAG 질의응답 완료",
+            data=result
+        )
+
+    except Exception as e:
+        # 에러 처리
+        error_id = error_logger.log_api_error(
+            endpoint="/self-rag/query",
+            method="POST",
+            error=e,
+            request_data={
+                "query": request.query,
+                "mode": request.reflection_mode,
+                "top_k": request.top_k
+            }
+        )
+
+        logging.error(f"Self-RAG 질의응답 실패: {str(e)}")
+        return ErrorResponse(
+            message="Self-RAG 질의응답 실패",
+            error_id=error_id,
+            error_type="processing_error",
+            data={"detail": str(e)}
+        )
+
+@router.get("/self-rag/status",
+    summary="📊 Self-RAG 서비스 상태",
+    description="Self-RAG 서비스의 현재 상태와 설정 정보를 조회합니다")
+async def get_self_rag_status():
+    """Self-RAG 서비스 상태 조회"""
+    try:
+        from app.services.self_rag import self_rag_service
+
+        if not self_rag_service:
+            return ErrorResponse(
+                message="Self-RAG 서비스가 초기화되지 않음",
+                error_type="service_error"
+            )
+
+        status = self_rag_service.get_service_status()
+
+        return SuccessResponse(
+            message="Self-RAG 상태 조회 성공",
+            data=status
+        )
+
+    except Exception as e:
+        error_id = error_logger.log_api_error(
+            endpoint="/self-rag/status",
+            method="GET",
+            error=e
+        )
+
+        return ErrorResponse(
+            message="Self-RAG 상태 조회 실패",
+            error_id=error_id,
+            error_type="system_error",
+            data={"detail": str(e)}
+        )

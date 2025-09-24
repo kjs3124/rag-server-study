@@ -28,7 +28,14 @@
       "Bash(findstr:*)",
       "Bash(tasklist)",
       "Bash(find:*)",
-      "Read(//c/Users/js_kim/AppData/Roaming/Python/Python313/site-packages/llama_index/readers/openapi/**)"
+      "Read(//c/Users/js_kim/AppData/Roaming/Python/Python313/site-packages/llama_index/readers/openapi/**)",
+      "Read(//c/Users/js_kim/Downloads/**)",
+      "Bash(docker-compose:*)",
+      "Bash(docker rmi:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker pull:*)",
+      "Bash(docker stop:*)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": [],
